@@ -13,3 +13,8 @@ Appunti salvati periodicamente per non perdere informazioni alla compattazione d
 2. Mettere i PHP "forse" in evidenza nel report, anche in quello compatto.
 3. Fonti di dati terze (webappanalyzer GPLv3, NCSC-NL EUPL): per rendere pubblico il repository, l'interfaccia deve scaricare le fonti direttamente online invece di distribuirle nel pacchetto.
 4. Nota operativa: salvare il contenuto della sessione in questo diario, periodicamente e prima di ogni compattazione; immagini e file solo per nome.
+
+## Decisioni del maintainer (24/10, sera)
+- Punto 3 (fonti terze scaricate online): **lasciare tutto com'è**, i dati derivati restano in `data\` con le licenze (distribuzione lecita, non un obbligo).
+- Punti 1-2 (forse evidenziato in tabella, pulsante/filtro, evidenza nel report compatto): proposta accettata in linea di principio; **via non ancora dato**, arriva a fine test della v1.6 su Windows.
+- Regola confermata: nessuna nuova versione senza l'ok esplicito del maintainer.
