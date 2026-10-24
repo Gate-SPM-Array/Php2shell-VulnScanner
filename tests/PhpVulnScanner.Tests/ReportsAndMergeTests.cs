@@ -154,7 +154,7 @@ public class ReportsAndMergeTests : IDisposable
         Assert.Equal(700, rows.Count(r => r.HttpReachable));
         var s = Session(rows);
         string html = CompactReportGenerator.Build(s, "report_completo_v1.4.html");
-        Assert.True(html.Length < 300 * 1024, $"report compatto di {html.Length / 1024} KB");
+        Assert.True(html.Length < 350 * 1024, $"report compatto di {html.Length / 1024} KB");   // v1.8: +elenco per Excel (al massimo 300 righe nel report, ~70 KB)
         Assert.Contains("19968 servizi (righe bersaglio/porta/nome) su 768 host distinti", html);
         Assert.Contains("Host attivi 350 su 768, 350 con HTTP", html);
     }

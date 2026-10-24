@@ -2,6 +2,26 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.8 — 2026-10-24
+
+Costruita sulle note del maintainer durante le prove della v1.7 sulla /20 (giro "tirato" a 36 thread e giro a 16 thread) e su una regola sua sul consolidamento. Nessuna sonda in più sugli host che rispondono.
+
+### Corretto
+- **Alive check sotto burst**: con 36 thread ogni host apriva insieme ICMP + 6 TCP + 6 UDP (~470 flussi in volo) e tutti gli host andavano in timeout fin dai primi secondi (71 attivi su 4094 contro ~280). Ora l'alive check ha un **tetto separato** (campo "Host in parallelo", predefinito 8, `--alive-parallel`), indipendente dai thread HTTP.
+- **Seconda chance a fine ciclo** (casella, `--no-alive-retry` per spegnerla): gli host non confermati vengono riprovati una volta, al massimo 4 alla volta, con ICMP + TCP sulle porte della scansione e timeout doppio; chi risponde viene scansionato per intero e la riga "Non raggiungibile" viene sostituita (stessa chiave, storia del ciclo aggiornata, entrambe le osservazioni nel `results.jsonl`). Un ciclo tirato non perde host per sempre.
+- **Sonde annullate non attese**: dopo la conferma (TCP/443 in 18 ms) la fase alive durava comunque 1,2 s aspettando il ping annullato; sulla /20 ~6 min di thread per ciclo. Ora le sonde annullate sono registrate con il tempo trascorso e lasciate morire in sfondo.
+- **Nomi in coda dietro gli host (regressione della v1.7)**: i lavori sui nomi aspettavano sul semaforo dietro migliaia di host (16 min misurati) e il thread dell'host altri 18 min per riprendere il posto: la riga in tabella restava con Nome vuoto per mezz'ora. La passata ora gira con **lavoratori e coda a priorità** (prima i nomi, poi gli host nuovi) e la chiusura dell'host è una continuazione accodata dall'ultimo nome: nessun lavoratore fermo, righe definitive pochi minuti dopo l'anteprima.
+- **Certificate Transparency** interrogava il dominio registrabile a due etichette (`example.it`): troppo largo, crt.sh non rispondeva. Ora prima il sottodominio più frequente tra i nomi (`ente.example.it`), poi il registrabile solo se vuoto.
+- **"PHP forse" nei filtri** era in AND con la tendina Verdetto (con "Non determinabili" selezionato spariva tutto): ora è una voce del gruppo Verdetto, in OR con gli altri riquadri.
+
+### Novità
+- **Consolidamento per campo** (regola del maintainer: il più informativo vince solo se contiene anche le informazioni dell'altro, altrimenti si fonde): la riga base resta la più informativa, ma versione, SAPI, applicazione, barriera, certificato, WAF, elenchi (nomi, superficie, tecnologie, esposizioni, indizi…) che ha solo l'altro ciclo vengono presi; verdetto e priorità ricalcolati sui campi fusi; ciclo e orario dell'ultima osservazione; test `MERGE` con i campi presi e il ciclo di provenienza. Vale anche per "Fondi sessioni". I file restano leggibili all'indietro.
+- **Elenco per Excel** in fondo al report compatto e in `elenco_vX.Y.csv`: tutti i servizi in evidenza (vulnerabili, probabilmente vulnerabili, mitigati, non determinabili, PHP forse), un solo nome per riga con il conteggio degli altri, 14 colonne brevi senza a capo (IP, Nome, Altri nomi, Porta, Verdetto, Priorità, PHP, Versione, SAPI, App, Barriera, WAF, Referente, Ciclo), ordine per priorità; nel report le prime 300 righe, nel CSV tutte.
+- Tabella "Da tenere in considerazione": colonne brevi senza a capo, Nomi limitata, Motivazione più larga; stato NCSC-NL abbreviato ("affetto: dipende dalla versione di PHP") con la frase intera nel suggerimento.
+
+### Test
+- 387 test (+13, `V18Tests`): seconda chance (riga sostituita, consolidato con una riga di storia per ciclo, spenta), CLI, sonde annullate non attese, nomi prima dell'host successivo (1 thread, 2 host), fusione per campo (campi presi, MERGE, verdetto ricalcolato, orario dell'ultima osservazione, stesso ciclo), CT sottodominio, NCSC breve, elenco per Excel (nome unico, altri nomi, forse, CSV, tetto nel report, file scritto accanto ai report).
+
 ## v1.7 — 2026-10-24
 
 Prima versione costruita da Claude Code sul repository. Via del maintainer dato in serata dopo le prove della v1.6 su una /22 (1022 host, 32 thread, 5 cicli consolidati, Massima detection). Nessuna richiesta HTTP in più; nessun test in meno.

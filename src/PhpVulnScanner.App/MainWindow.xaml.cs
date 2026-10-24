@@ -91,6 +91,8 @@ public partial class MainWindow : Window
         TxtAliveTcp.Text = string.Join(",", c.Alive.TcpPorts);
         TxtAliveUdp.Text = string.Join(",", c.Alive.UdpPorts);
         TxtAliveTimeout.Text = c.Alive.TimeoutMs.ToString(C);
+        TxtAliveParallel.Text = c.Alive.Parallel.ToString(C);
+        ChkAliveRetry.IsChecked = c.Alive.Retry;
         ChkSkipNotAlive.IsChecked = c.Alive.SkipIfNotAlive;
         ChkInfoPages.IsChecked = c.Level1InfoPages;
         ChkEasterEgg.IsChecked = c.Level1EasterEgg;
@@ -195,6 +197,8 @@ public partial class MainWindow : Window
         c.Alive.UdpPorts = TargetParser.ParsePorts(TxtAliveUdp.Text, out var badUdp);
         if (badUdp.Count > 0) _configWarnings.Add(L.F("porte UDP dell'alive check ignorate: {0}", string.Join(", ", badUdp)));
         c.Alive.TimeoutMs = Int(TxtAliveTimeout, 1500);
+        c.Alive.Parallel = Int(TxtAliveParallel, 8);
+        c.Alive.Retry = ChkAliveRetry.IsChecked == true;
         c.Alive.SkipIfNotAlive = ChkSkipNotAlive.IsChecked == true;
         c.Clamp();
         return c;
@@ -525,7 +529,7 @@ public partial class MainWindow : Window
         _fillingFilters = true;
         try
         {
-            Fill(CmbFilterVerdict, _verdictItems, Enum.GetValues<Verdict>().Select(v => new MultiSelectItem(v.ToString(), Labels.Verdict(v))));
+            Fill(CmbFilterVerdict, _verdictItems, Enum.GetValues<Verdict>().Select(v => new MultiSelectItem(v.ToString(), Labels.Verdict(v))).Append(new MultiSelectItem("maybe", L.T("PHP forse"))));   // v1.8: "forse" in OR con i verdetti
             Fill(CmbFilterPriority, _priorityItems, Enum.GetValues<Priority>().Reverse().Select(p => new MultiSelectItem(p.ToString(), Labels.Priority(p))));
             Fill(CmbFilterAlive, _aliveItems, Enum.GetValues<AliveState>().Select(a => new MultiSelectItem(a.ToString(), Labels.Alive(a))));
             Fill(CmbFilterBarrier, _barrierItems, Enum.GetValues<MultipartBarrier>().Select(m => new MultiSelectItem(m.ToString(), Labels.Multipart(m))));
@@ -581,6 +585,19 @@ public partial class MainWindow : Window
         if (sender is ComboBox cmb && cmb.SelectedIndex != -1) cmb.SelectedIndex = -1;
     }
 
+    /// <summary>Gruppo Verdetto (v1.8): i verdetti selezionati in OR tra loro e con «PHP forse» (riga con indizi, verdetto "PHP non rilevato").</summary>
+    private bool PassesVerdict(ScanResult r)
+    {
+        bool any = false;
+        foreach (var i in _verdictItems)
+        {
+            if (!i.IsChecked) continue;
+            any = true;
+            if (i.Key == "maybe" ? IsMaybeRow(r) : i.Key == r.Verdict.ToString()) return true;
+        }
+        return !any;
+    }
+
     private static bool Passes(ObservableCollection<MultiSelectItem> items, string key)
     {
         bool any = false;
@@ -606,8 +623,7 @@ public partial class MainWindow : Window
         if (o is not ResultRow row) return false;
         var r = row.Result;
         if (_kpiFilter == "alive" && !IsAliveRow(r)) return false;
-        if (_kpiFilter == "maybe" && !IsMaybeRow(r)) return false;
-        if (!Passes(_verdictItems, r.Verdict.ToString())) return false;
+        if (!PassesVerdict(r)) return false;
         if (!Passes(_priorityItems, r.Priority.ToString())) return false;
         if (!Passes(_aliveItems, r.Alive.ToString())) return false;
         if (!Passes(_barrierItems, r.Multipart.ToString())) return false;
@@ -660,9 +676,9 @@ public partial class MainWindow : Window
     private void Kpi_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is not Border b || b.Tag is not string tag) return;
-        if (tag is "alive" or "maybe")
+        if (tag == "alive")
         {
-            _kpiFilter = _kpiFilter == tag ? "" : tag;
+            _kpiFilter = _kpiFilter == "alive" ? "" : "alive";
             HighlightKpi();
             RefreshFilter();
             return;
@@ -677,7 +693,7 @@ public partial class MainWindow : Window
         foreach (var b in FindKpis())
         {
             string tag = (string?)b.Tag ?? "";
-            bool on = tag is "alive" or "maybe" ? _kpiFilter == tag : _verdictItems.Any(i => i.IsChecked && i.Key == tag);
+            bool on = tag == "alive" ? _kpiFilter == "alive" : _verdictItems.Any(i => i.IsChecked && i.Key == tag);
             b.BorderBrush = on ? accent : line;
         }
     }

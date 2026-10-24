@@ -983,9 +983,15 @@ public static class AdvancedProbes
                 else
                 {
                     int total = 0, added = 0;
+                    var asked = new List<string>();
                     foreach (var d in domains)
                     {
-                        var names = await CertificateTransparency.QueryAsync(d, ct).ConfigureAwait(false);
+                        // v1.8: prima il dominio a tre etichette più frequente tra i nomi (ente.example.it), poi quello registrabile (example.it):
+                        // su un dominio largo crt.sh non risponde in tempo e tornava vuoto (misurato sulla /20)
+                        var specific = CertificateTransparency.MostCommonSubdomain(seeds, d);
+                        IReadOnlyList<string> names = [];
+                        if (specific != null) { names = await CertificateTransparency.QueryAsync(specific, ct).ConfigureAwait(false); asked.Add(specific); }
+                        if (names.Count == 0) { names = await CertificateTransparency.QueryAsync(d, ct).ConfigureAwait(false); asked.Add(d); }
                         total += names.Count;
                         foreach (var n in names)
                         {
@@ -995,8 +1001,8 @@ public static class AdvancedProbes
                         }
                     }
                     r.Add("ADV-HOST-CT", L.T("Certificate Transparency (crt.sh)"), TestOutcome.Info,
-                        total > 0 ? L.F("{0}: {1} nomi nei certificati, {2} nuovi aggiunti ai nomi scoperti (max {3})", string.Join(", ", domains), total, added, MaxCtNames)
-                                  : L.F("{0}: nessun nome restituito (servizio non raggiungibile o nessun certificato)", string.Join(", ", domains)));
+                        total > 0 ? L.F("{0}: {1} nomi nei certificati, {2} nuovi aggiunti ai nomi scoperti (max {3})", string.Join(", ", asked), total, added, MaxCtNames)
+                                  : L.F("{0}: nessun nome restituito (servizio non raggiungibile o nessun certificato)", string.Join(", ", asked)));
                 }
             }
             catch (OperationCanceledException) { throw; }

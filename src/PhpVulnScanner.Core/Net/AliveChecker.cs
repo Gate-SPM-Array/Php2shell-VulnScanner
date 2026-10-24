@@ -21,6 +21,10 @@ public sealed class AliveConfig
     public int TimeoutMs { get; set; } = 1500;
     /// <summary>Se vero, i bersagli non confermati attivi non vengono scansionati.</summary>
     public bool SkipIfNotAlive { get; set; } = true;
+    /// <summary>v1.8: host in alive check contemporaneamente (0 = quanti i thread). Indipendente dai thread HTTP: ogni host apre ICMP + TCP + UDP insieme.</summary>
+    public int Parallel { get; set; } = 8;
+    /// <summary>v1.8: a fine ciclo gli host non confermati vengono riprovati una volta a ritmo lento (ICMP + TCP sulle porte della scansione, timeout doppio).</summary>
+    public bool Retry { get; set; } = true;
 }
 
 /// <summary>Esito del controllo: Attivo (almeno un metodo ha ricevuto una risposta), Nessuna risposta, Non eseguito.</summary>
@@ -70,13 +74,19 @@ public static class AliveChecker
             try { (ok, detail) = await done.ConfigureAwait(false); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex) { detail = ex.GetBaseException().Message; }
-            // un metodo che finisce dopo la conferma di un altro è stato annullato: lo si dice, invece di riportare il messaggio di sistema
-            if (!ok && confirmed != null) detail = L.T("annullato (host già confermato)");
             outcomes[entry.Method] = new AliveMethodResult(entry.Method, ok, detail, entry.Sw.Elapsed.TotalMilliseconds);
-            if (ok && confirmed == null)
+            if (ok)
             {
                 confirmed = new AliveResult(AliveState.Alive, entry.Method, detail, sw.Elapsed.TotalMilliseconds, []);
-                cts.Cancel();   // gli altri metodi non servono più: vengono annullati e registrati come tali
+                cts.Cancel();   // gli altri metodi non servono più
+                // v1.8: non si aspetta la fine delle sonde annullate (sulla /20 costava 1,2 s per host attivo: un ping annullato non torna subito);
+                // vengono registrate come annullate con il tempo trascorso finora e lasciate morire in sfondo
+                foreach (var p in pending)
+                {
+                    outcomes[p.Method] = new AliveMethodResult(p.Method, false, L.T("annullato (host già confermato)"), p.Sw.Elapsed.TotalMilliseconds);
+                    _ = p.Task.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                }
+                break;
             }
         }
         var ordered = tasks.Select(t => outcomes[t.Method]).ToList();

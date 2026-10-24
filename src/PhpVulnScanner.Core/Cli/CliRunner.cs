@@ -35,6 +35,7 @@ public static class CliRunner
         L.T("  --no-alive               nessun alive check preliminare"),
         L.T("  --alive-tcp 443,80       porte TCP dell'alive check    --alive-udp 53   porte UDP    --no-icmp"),
         L.T("  --alive-timeout <ms>     timeout dell'alive check       --scan-not-alive  scansiona anche i non confermati"),
+        L.T("  --alive-parallel <n>     host in alive check insieme (8; 0 = thread)   --no-alive-retry  nessuna seconda chance a fine ciclo"),
         L.T("  --no-level2              salta precondizioni e barriere  --no-waf   salta la rilevazione WAF/proxy"),
         L.T("  --light                  HEAD al posto di GET (meno traffico, meno segnali)"),
         L.T("  --threads <n>  --connect-timeout <ms>  --read-timeout <ms>  --resolver <ip>  --host-header <nome>"),
@@ -84,6 +85,8 @@ public static class CliRunner
                     case "--alive-tcp": cfg.Alive.TcpPorts = TargetParser.ParsePorts(Next(), out var e1); if (e1.Count > 0) throw new ArgumentException(L.F("porte non valide: {0}", string.Join(",", e1))); break;
                     case "--alive-udp": cfg.Alive.UdpPorts = TargetParser.ParsePorts(Next(), out var e2); if (e2.Count > 0) throw new ArgumentException(L.F("porte non valide: {0}", string.Join(",", e2))); break;
                     case "--alive-timeout": cfg.Alive.TimeoutMs = Int(Next(), a); break;
+                    case "--alive-parallel": cfg.Alive.Parallel = Int(Next(), a); break;
+                    case "--no-alive-retry": cfg.Alive.Retry = false; break;
                     case "--scan-not-alive": cfg.Alive.SkipIfNotAlive = false; break;
                     case "--no-level2": cfg.Level2 = false; break;
                     case "--no-waf": cfg.WafDetect = false; cfg.WafBehaviour = false; break;

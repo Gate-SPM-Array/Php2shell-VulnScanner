@@ -221,7 +221,9 @@ public sealed class SessionWriter : IDisposable
         {
             try { _jsonl.WriteLine(JsonSerializer.Serialize(r, SessionFiles.JsonlOptions)); }
             catch (Exception ex) { _log.WriteLine($"{Stamp.LogNow()} results.jsonl: {ex.Message}"); }
-            if (_consolidate && _index.TryGetValue(r.Key, out int i)) _results[i] = r;
+            // v1.8: sostituzione per chiave anche senza consolidamento (seconda chance dell'alive check: la riga "non raggiungibile" viene riemessa completa);
+            // le chiavi sono uniche per ciclo, e ogni ciclo non consolidato ha il suo writer
+            if (_index.TryGetValue(r.Key, out int i)) _results[i] = r;
             else { _index[r.Key] = _results.Count; _results.Add(r); }
             _dirty = true;
             if (!_rewriteRunning && _sinceWrite.ElapsedMilliseconds >= RewriteInterval) StartRewrite();

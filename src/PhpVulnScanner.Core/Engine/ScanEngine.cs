@@ -120,8 +120,16 @@ public sealed class ScanEngine
         /// <summary>Anteprima (v1.7): riga per IP già completa, mostrata in tabella prima della seconda passata sui nomi; la stessa chiave viene poi riemessa con <see cref="Emit"/>.</summary>
         public required Action<ScanResult> Preview;
         public required PauseToken Pause;
-        /// <summary>Semaforo dei thread della passata (v1.7): la seconda passata sui nomi lo usa per girare in parallelo invece che in sequenza sul thread dell'host.</summary>
-        public SemaphoreSlim? Sem;
+        /// <summary>Riemissione (v1.8): stessa chiave già emessa (seconda chance dell'alive check): sostituisce la riga senza contare un completamento in più.</summary>
+        public required Action<ScanResult> Replace;
+        /// <summary>Coda dei lavori sui nomi scoperti (v1.8): i lavoratori la servono prima degli host nuovi, così la seconda passata non resta in coda dietro migliaia di host.</summary>
+        public readonly ConcurrentQueue<Func<Task>> NameJobs = new();
+        /// <summary>Lavori in corso o in coda (host, nomi, chiusure): a zero la passata è finita.</summary>
+        public int Outstanding;
+        /// <summary>Tetto dell'alive check (v1.8), indipendente dai thread HTTP.</summary>
+        public SemaphoreSlim? AliveSem;
+        /// <summary>Host saltati perché non confermati attivi (v1.8): candidati alla seconda chance a fine ciclo.</summary>
+        public readonly ConcurrentBag<(ScanTarget Target, List<int> Ports)> NotAlive = [];
         public int Total, Done, HostsDone;
         public readonly ConcurrentDictionary<string, byte> AliveHosts = new(StringComparer.OrdinalIgnoreCase);
         public readonly ConcurrentDictionary<string, byte> HttpHosts = new(StringComparer.OrdinalIgnoreCase);
@@ -215,10 +223,23 @@ public sealed class ScanEngine
                     },
                     Observe = r => { r.Cycle = cycle; writer?.Observe(r); },
                     Preview = r => { r.Cycle = cycle; ResultReady?.Invoke(r); },
+                    Replace = null!,
                 };
-                var passResults = new ConcurrentBag<ScanResult>();
+                var passResults = new ConcurrentDictionary<string, ScanResult>(StringComparer.OrdinalIgnoreCase);
                 var origEmit = run.Emit;
-                run.Emit = r => { passResults.Add(r); origEmit(r); };
+                run.Emit = r => { passResults[r.Key] = r; origEmit(r); };
+                run.Replace = r =>
+                {
+                    // v1.8: riemissione nello stesso ciclo (seconda chance dell'alive check): il consolidato fonde per chiave sostituendo la riga di storia,
+                    // il writer sostituisce per chiave, la tabella aggiorna la riga
+                    r.Cycle = cycle;
+                    ScanResult outR = r;
+                    if (consolidate) { outR = consolidated.AddOrUpdate(r.Key, _ => ResultMerger.Merge(null, r), (_, cur) => ResultMerger.Merge(cur, r, sameCycle: true)); writer?.Upsert(outR); }
+                    else { if (cycles > 1) { r.History.Clear(); r.History.Add(ResultMerger.HistoryLine(r)); } writer?.Upsert(r); }
+                    if (!consolidate) cumulative.AddOrUpdate(r.Key, _ => r, (_, cur) => ResultMerger.Score(r) >= ResultMerger.Score(cur) ? r : cur);
+                    passResults[r.Key] = outR;
+                    ResultReady?.Invoke(outR);
+                };
 
                 firstFolder ??= current.Folder;
                 var passClock = Stopwatch.StartNew();
@@ -236,7 +257,7 @@ public sealed class ScanEngine
                 }
                 catch (Exception ex) { LogLine(L.F("File degli host non scritti: {0}", ex.Message)); }
 
-                var list = consolidate ? consolidated.Values.ToList() : passResults.ToList();
+                var list = consolidate ? consolidated.Values.ToList() : passResults.Values.ToList();
                 current.Results = list.OrderBy(r => r.SortKey, StringComparer.Ordinal).ThenBy(r => r.Port).ToList();
                 current.HostsAlive = run.AliveHosts.Count;
                 current.HostsHttp = run.HttpHosts.Count;
@@ -307,28 +328,33 @@ public sealed class ScanEngine
         run.Clock = Stopwatch.StartNew();
         int hostsTotal = hosts.Count;
 
-        var sem = new SemaphoreSlim(cfg.Threads);
-        run.Sem = sem;
+        run.AliveSem = cfg.Alive.Enabled ? new SemaphoreSlim(cfg.Alive.Parallel > 0 ? Math.Min(cfg.Alive.Parallel, cfg.Threads) : cfg.Threads) : null;
         using var progressCts = CancellationTokenSource.CreateLinkedTokenSource(run.Ct);
         var progressLoop = ProgressLoopAsync(run, estimator, hostsTotal, progressCts.Token);
 
         ScanStatus status = ScanStatus.Completed;
         try
         {
-            var tasks = hosts.Select(async host =>
+            // v1.8: lavoratori con coda a priorità. Prima (v1.7) tutti gli host erano task in attesa sullo stesso semaforo e i lavori sui nomi
+            // finivano in coda dietro migliaia di host (16 min di attesa misurati sulla /20); ora ogni lavoratore prende prima un nome, poi un host.
+            var hostQueue = new ConcurrentQueue<ScanTarget>(hosts);
+            run.Outstanding = hosts.Count;
+            await RunWorkersAsync(run, cfg.Threads, hostQueue, ports, estimator, false).ConfigureAwait(false);
+
+            // v1.8: seconda chance per gli host non confermati attivi, a ritmo lento (ICMP + TCP sulle porte della scansione, timeout doppio):
+            // un ciclo "tirato" non perde host per sempre. Chi risponde viene scansionato per intero e la sua riga sostituisce quella "non raggiungibile".
+            if (cfg.Alive.Enabled && cfg.Alive.SkipIfNotAlive && cfg.Alive.Retry && !run.NotAlive.IsEmpty)
             {
-                await sem.WaitAsync(run.Ct).ConfigureAwait(false);
-                try
-                {
-                    run.Ct.ThrowIfCancellationRequested();
-                    await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
-                    var hostPorts = cfg.RandomOrder ? ports.OrderBy(_ => Random.Shared.Next()).ToList() : ports;
-                    await ScanHostAsync(run, host, hostPorts, estimator).ConfigureAwait(false);
-                    Interlocked.Increment(ref run.HostsDone);
-                }
-                finally { sem.Release(); }
-            }).ToList();
-            await Task.WhenAll(tasks).ConfigureAwait(false);
+                var retry = run.NotAlive.ToList();
+                run.NotAlive.Clear();
+                run.Log(L.F("Seconda chance dell'alive check: {0} host non confermati riprovati a ritmo lento (ICMP + TCP {1}, timeout {2} ms)", retry.Count, string.Join(",", ports), cfg.Alive.TimeoutMs * 2));
+                int before = run.AliveHosts.Count;
+                var retryQueue = new ConcurrentQueue<ScanTarget>(retry.Select(x => x.Target));
+                run.Outstanding = retry.Count;
+                run.AliveSem = new SemaphoreSlim(Math.Max(1, Math.Min(4, cfg.Threads)));
+                await RunWorkersAsync(run, cfg.Threads, retryQueue, ports, estimator, true).ConfigureAwait(false);
+                run.Log(L.F("Seconda chance: {0} host recuperati su {1}", run.AliveHosts.Count - before, retry.Count));
+            }
         }
         catch (OperationCanceledException) { status = ScanStatus.Stopped; }
         finally
@@ -398,14 +424,52 @@ public sealed class ScanEngine
         return res.ToDictionary(x => x.Item1, x => (x.Item2, x.Item3));
     }
 
-    /// <summary>Un host: risoluzione e alive check una volta, pre-controllo delle porte, poi le porte in sequenza, poi la seconda passata sui nomi scoperti; le righe escono insieme alla fine dell'host.</summary>
-    private async Task ScanHostAsync(Run run, ScanTarget target, List<int> ports, ScanEstimator estimator)
+    /// <summary>
+    /// Lavoratori della passata (v1.8): ognuno prende prima un lavoro sui nomi (<see cref="Run.NameJobs"/>), poi un host dalla coda; finisce
+    /// quando code e lavori in corso sono a zero. La chiusura di un host (ripiegamento dei nomi, righe definitive) è l'ultimo lavoro sui
+    /// nomi di quell'host, così nessun lavoratore resta fermo ad aspettare.
+    /// </summary>
+    private async Task RunWorkersAsync(Run run, int workers, ConcurrentQueue<ScanTarget> hostQueue, List<int> ports, ScanEstimator estimator, bool retry)
     {
         var cfg = run.Cfg;
-        var info = await ProbeHostAsync(run, target).ConfigureAwait(false);
+        async Task Worker()
+        {
+            while (true)
+            {
+                run.Ct.ThrowIfCancellationRequested();
+                if (run.NameJobs.TryDequeue(out var job))
+                {
+                    await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
+                    try { await job().ConfigureAwait(false); }
+                    finally { Interlocked.Decrement(ref run.Outstanding); }
+                    continue;
+                }
+                if (hostQueue.TryDequeue(out var host))
+                {
+                    await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
+                    var hostPorts = cfg.RandomOrder ? ports.OrderBy(_ => Random.Shared.Next()).ToList() : ports;
+                    try { await ScanHostAsync(run, host, hostPorts, estimator, retry).ConfigureAwait(false); }
+                    finally { Interlocked.Decrement(ref run.Outstanding); }
+                    continue;
+                }
+                if (Volatile.Read(ref run.Outstanding) <= 0) return;
+                await Task.Delay(25, run.Ct).ConfigureAwait(false);
+            }
+        }
+        var tasks = Enumerable.Range(0, Math.Max(1, workers)).Select(_ => Worker()).ToList();
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    /// <summary>Un host: risoluzione e alive check una volta, qualunque sia il numero di porte, pre-controllo delle porte, poi le porte in sequenza; le righe per IP vanno in anteprima e la seconda passata sui nomi scoperti viene accodata (v1.8), con la chiusura dell'host come ultimo lavoro.</summary>
+    private async Task ScanHostAsync(Run run, ScanTarget target, List<int> ports, ScanEstimator estimator, bool retry = false)
+    {
+        var cfg = run.Cfg;
+        var info = await ProbeHostAsync(run, target, retry).ConfigureAwait(false);
         if (info.Alive?.State == AliveState.Alive) run.AliveHosts.TryAdd(target.Host, 0);
 
         bool skipAll = info.Error != null || (info.Alive != null && info.Alive.State != AliveState.Alive && cfg.Alive.SkipIfNotAlive);
+        if (retry && skipAll) return;   // seconda chance fallita: la riga "non raggiungibile" resta quella già emessa
+        if (skipAll && info.Error == null && info.Alive != null && cfg.Alive.Retry && !retry) run.NotAlive.Add((target, ports));
         Dictionary<int, (PortState State, double Ms)>? precheck = null;
         if (!skipAll && cfg.PortPrecheck && ports.Count > 1)
         {
@@ -444,7 +508,6 @@ public sealed class ScanEngine
         }
 
         // seconda passata sui nomi scoperti (stessi IP, Host e SNI = nome), solo dove HTTP ha risposto
-        var extra = new List<ScanResult>();
         if (cfg.DiscoverNames && cfg.RescanDiscoveredNames)
         {
             var names = new List<string>();
@@ -454,92 +517,92 @@ public sealed class ScanEngine
             var httpPorts = results.Where(r => r.HttpReachable).Select(r => r.Port).Distinct().ToList();
             if (rescan.Count > 0 && httpPorts.Count > 0)
             {
-                // v1.7: le righe per IP sono complete: anteprima in tabella subito, senza aspettare la seconda passata sui nomi (che può durare
-                // decine di minuti su un host con 10 nomi); la stessa chiave viene riemessa alla fine dell'host con nomi ripiegati e test NAME-*
+                // v1.7: le righe per IP sono complete: anteprima in tabella subito; la stessa chiave viene riemessa alla fine dell'host con nomi ripiegati e test NAME-*
                 foreach (var r in results) run.Preview(r);
                 Interlocked.Add(ref run.Total, rescan.Count * httpPorts.Count);
                 run.Log(L.F("{0}: {1} nomi scoperti ({2}), seconda passata su {3} porte", target.Host, rescan.Count, string.Join(", ", rescan.Take(5)) + (rescan.Count > 5 ? " …" : ""), httpPorts.Count));
-                // v1.7: i nomi girano in parallelo sul pool dei thread della passata (prima in sequenza sul thread dell'host: 10 nomi × 2 porte
-                // × 60-120 s = 20-30 min per host, e a fine ciclo un solo thread al lavoro). Il thread dell'host cede il suo posto mentre aspetta.
-                // Il ripiegamento (stesso contenuto / stesso esito) resta sequenziale e nell'ordine dei nomi, così l'esito è identico a prima.
+                // v1.8: un lavoro per coppia nome/porta nella coda a priorità; l'ultimo che finisce accoda la chiusura dell'host.
+                // Il ripiegamento resta sequenziale e nell'ordine dei nomi (la chiusura lo fa in un colpo solo), così l'esito è identico alla v1.5.
                 var pairs = new List<(string Name, int Port)>();
                 foreach (var name in rescan) foreach (int port in httpPorts) pairs.Add((name, port));
-                var scanned = await ScanNamesAsync(run, target, info, hostPivot, pairs).ConfigureAwait(false);
-                foreach (var (name, port, r) in scanned)
+                var scanned = new ScanResult?[pairs.Count];
+                int remaining = pairs.Count;
+                Interlocked.Add(ref run.Outstanding, pairs.Count);
+                for (int i = 0; i < pairs.Count; i++)
                 {
-                    var ipRow = results.FirstOrDefault(x => x.Port == port);
-                    if (cfg.FoldSameContentNames && ipRow != null && SameContent(ipRow, r, name))
+                    int idx = i;
+                    var (name, port) = pairs[idx];
+                    run.NameJobs.Enqueue(async () =>
                     {
-                        // il nome è il vhost predefinito: nessuna riga in più, il nome va nella colonna Nome della riga per IP; l'osservazione resta in results.jsonl
-                        if (!ipRow.SameContentNames.Contains(name)) ipRow.SameContentNames.Add(name);
-                        ipRow.Add("NAME-SAME", L.T("Nome con lo stesso contenuto"), TestOutcome.Info, L.F("{0}: stesso contenuto del vhost predefinito (stato, intestazioni, versione, applicazione e corpo uguali): nessuna riga aggiuntiva", name));
-                        Interlocked.Decrement(ref run.Total);
-                        run.Log(L.F("{0}:{1} {2}: stesso contenuto del vhost predefinito, riga non aggiunta", target.Host, port, name));
-                        run.Observe(r);
-                        continue;
-                    }
-                    if (cfg.FoldSameOutcomeNames)
-                    {
-                        // v1.5: contenuto diverso ma stesso esito della riga per IP o di un nome già tenuto: il nome va nella colonna Nome del
-                        // "titolare", la riga non si aggiunge; l'osservazione completa resta in results.jsonl
-                        var keeper = ipRow != null && SameOutcome(ipRow, r) ? ipRow : extra.FirstOrDefault(x => x.Port == port && SameOutcome(x, r));
-                        if (keeper != null)
+                        try
                         {
-                            if (!keeper.SameOutcomeNames.Contains(name)) keeper.SameOutcomeNames.Add(name);
-                            keeper.Add("NAME-OUTCOME", L.T("Nome con lo stesso esito"), TestOutcome.Info, L.F("{0}: stesso esito della riga (verdetto, versione, SAPI, applicazione, barriera, WAF, priorità): nessuna riga aggiuntiva", name));
-                            Interlocked.Decrement(ref run.Total);
-                            run.Log(L.F("{0}:{1} {2}: stesso esito di {3}, riga non aggiunta", target.Host, port, name, keeper.Display));
-                            run.Observe(r);
-                            continue;
+                            var r = await ScanOneAsync(run, target, port, info, false, name, (PortState.Open, 0)).ConfigureAwait(false);
+                            if (hostPivot != null && r.HttpReachable)
+                            {
+                                // i risultati a livello di host (FastCGI 9000) valgono anche per il nome: copiati prima del verdetto definitivo, così il confronto dell'esito è alla pari
+                                CopyHostLevel(hostPivot, r);
+                                VerdictEngine.Apply(r);
+                            }
+                            scanned[idx] = r;
                         }
-                    }
-                    extra.Add(r);
+                        finally
+                        {
+                            if (Interlocked.Decrement(ref remaining) == 0)
+                            {
+                                Interlocked.Increment(ref run.Outstanding);
+                                run.NameJobs.Enqueue(() => { FinishHost(run, target, results, pairs, scanned, retry); return Task.CompletedTask; });
+                            }
+                        }
+                    });
                 }
+                return;
             }
         }
 
-        foreach (var r in results) Complete(run, r);
-        foreach (var r in extra) Complete(run, r);
+        FinishHost(run, target, results, [], [], retry);
     }
 
-    /// <summary>
-    /// Seconda passata sui nomi in parallelo (v1.7): ogni coppia nome/porta prende un posto nel semaforo dei thread della passata; il thread
-    /// dell'host libera il proprio posto mentre aspetta e lo riprende alla fine, così il numero di richieste in volo resta quello configurato.
-    /// Risultati nell'ordine delle coppie (il ripiegamento che segue dipende dall'ordine).
-    /// </summary>
-    private async Task<List<(string Name, int Port, ScanResult Result)>> ScanNamesAsync(Run run, ScanTarget target, HostInfo info, ScanResult? hostPivot, List<(string Name, int Port)> pairs)
+    /// <summary>Chiusura dell'host (v1.8): ripiegamento dei nomi nell'ordine delle coppie, poi le righe definitive (per IP ed extra).</summary>
+    private void FinishHost(Run run, ScanTarget target, List<ScanResult> results, List<(string Name, int Port)> pairs, ScanResult?[] scanned, bool retry)
     {
-        async Task<ScanResult> One((string Name, int Port) p)
+        var cfg = run.Cfg;
+        var extra = new List<ScanResult>();
+        for (int i = 0; i < pairs.Count; i++)
         {
-            var sem = run.Sem;
-            if (sem != null) await sem.WaitAsync(run.Ct).ConfigureAwait(false);
-            try
+            var (name, port) = pairs[i];
+            var r = scanned[i];
+            if (r == null) continue;   // lavoro interrotto
+            var ipRow = results.FirstOrDefault(x => x.Port == port);
+            if (cfg.FoldSameContentNames && ipRow != null && SameContent(ipRow, r, name))
             {
-                run.Ct.ThrowIfCancellationRequested();
-                await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
-                var r = await ScanOneAsync(run, target, p.Port, info, false, p.Name, (PortState.Open, 0)).ConfigureAwait(false);
-                if (hostPivot != null && r.HttpReachable)
-                {
-                    // i risultati a livello di host (FastCGI 9000) valgono anche per il nome: copiati prima del verdetto definitivo, così il confronto dell'esito è alla pari
-                    CopyHostLevel(hostPivot, r);
-                    VerdictEngine.Apply(r);
-                }
-                return r;
+                // il nome è il vhost predefinito: nessuna riga in più, il nome va nella colonna Nome della riga per IP; l'osservazione resta in results.jsonl
+                if (!ipRow.SameContentNames.Contains(name)) ipRow.SameContentNames.Add(name);
+                ipRow.Add("NAME-SAME", L.T("Nome con lo stesso contenuto"), TestOutcome.Info, L.F("{0}: stesso contenuto del vhost predefinito (stato, intestazioni, versione, applicazione e corpo uguali): nessuna riga aggiuntiva", name));
+                Interlocked.Decrement(ref run.Total);
+                run.Log(L.F("{0}:{1} {2}: stesso contenuto del vhost predefinito, riga non aggiunta", target.Host, port, name));
+                run.Observe(r);
+                continue;
             }
-            finally { sem?.Release(); }
+            if (cfg.FoldSameOutcomeNames)
+            {
+                // v1.5: contenuto diverso ma stesso esito della riga per IP o di un nome già tenuto: il nome va nella colonna Nome del
+                // "titolare", la riga non si aggiunge; l'osservazione completa resta in results.jsonl
+                var keeper = ipRow != null && SameOutcome(ipRow, r) ? ipRow : extra.FirstOrDefault(x => x.Port == port && SameOutcome(x, r));
+                if (keeper != null)
+                {
+                    if (!keeper.SameOutcomeNames.Contains(name)) keeper.SameOutcomeNames.Add(name);
+                    keeper.Add("NAME-OUTCOME", L.T("Nome con lo stesso esito"), TestOutcome.Info, L.F("{0}: stesso esito della riga (verdetto, versione, SAPI, applicazione, barriera, WAF, priorità): nessuna riga aggiuntiva", name));
+                    Interlocked.Decrement(ref run.Total);
+                    run.Log(L.F("{0}:{1} {2}: stesso esito di {3}, riga non aggiunta", target.Host, port, name, keeper.Display));
+                    run.Observe(r);
+                    continue;
+                }
+            }
+            extra.Add(r);
         }
-        var hostSem = run.Sem;
-        hostSem?.Release();   // il posto dell'host torna al pool finché i nomi girano
-        try
-        {
-            var tasks = pairs.Select(One).ToList();
-            var res = await Task.WhenAll(tasks).ConfigureAwait(false);
-            return pairs.Select((p, i) => (p.Name, p.Port, res[i])).ToList();
-        }
-        finally
-        {
-            if (hostSem != null) await hostSem.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        }
+        foreach (var r in results) Complete(run, r, retry);
+        foreach (var r in extra) Complete(run, r, false);
+        if (!retry) Interlocked.Increment(ref run.HostsDone);   // l'host della seconda chance era già contato
     }
 
     /// <summary>Copia su <paramref name="r"/> i risultati dei test a livello di host (FastCGI 9000, esposizioni sulla 9000, test ADV-HOST) ottenuti sul pivot.</summary>
@@ -586,16 +649,17 @@ public sealed class ScanEngine
         return t.Length > 4096 ? t[..4096] : t;
     }
 
-    private void Complete(Run run, ScanResult r)
+    private void Complete(Run run, ScanResult r, bool replace = false)
     {
         if (r.HttpReachable) run.HttpHosts.TryAdd(r.Host, 0);
         if (!run.Cfg.Alive.Enabled && (r.HttpReachable || r.Tls is { Handshake: true })) run.AliveHosts.TryAdd(r.Host, 0);
+        if (replace) { run.Replace(r); return; }   // v1.8: riga già contata come completata (seconda chance)
         run.Emit(r);
         Interlocked.Increment(ref run.Done);
     }
 
     /// <summary>Risoluzione e alive check: una volta per host, qualunque sia il numero di porte.</summary>
-    private static async Task<HostInfo> ProbeHostAsync(Run run, ScanTarget target)
+    private static async Task<HostInfo> ProbeHostAsync(Run run, ScanTarget target, bool retry = false)
     {
         var cfg = run.Cfg;
         List<string> ips;
@@ -619,9 +683,18 @@ public sealed class ScanEngine
         double aliveMs = 0;
         if (cfg.Alive.Enabled)
         {
-            var sw = Stopwatch.StartNew();
-            alive = await AliveChecker.CheckAsync(target.Host, cfg.Alive, run.Ct).ConfigureAwait(false);
-            aliveMs = sw.Elapsed.TotalMilliseconds;
+            // v1.8: tetto separato per l'alive check (sulla /20 con 36 thread × 13 sonde erano ~470 flussi aperti insieme e tutti i timeout);
+            // nella seconda chance solo ICMP e TCP sulle porte della scansione, con timeout doppio
+            var acfg = retry ? new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = run.Ports.ToList(), UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 2, SkipIfNotAlive = cfg.Alive.SkipIfNotAlive } : cfg.Alive;
+            var sem = run.AliveSem;
+            if (sem != null) await sem.WaitAsync(run.Ct).ConfigureAwait(false);
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                alive = await AliveChecker.CheckAsync(target.Host, acfg, run.Ct).ConfigureAwait(false);
+                aliveMs = sw.Elapsed.TotalMilliseconds;
+            }
+            finally { sem?.Release(); }
         }
         return new HostInfo(ips, dnsMs, alive, aliveMs, null);
     }

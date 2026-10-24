@@ -114,9 +114,10 @@ public static class CompactReportGenerator
             sb.Append("</tr></thead><tbody>");
             foreach (var r in attention)
             {
+                string ncsc = NcscShort(r.NcscStatus);
                 sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
                   .Append(Badge(r.Verdict)).Append("</td><td>").Append(E(Labels.Priority(r.Priority))).Append("</td><td>").Append(E(PhpCell(r))).Append("</td><td>").Append(E(r.Sapi.Length > 0 ? Labels.Sapi(r.Sapi) : "–")).Append("</td><td>")
-                  .Append(E(AppCell(r))).Append("</td><td>").Append(E(r.NcscStatus.Length > 0 ? r.NcscStatus : "–")).Append("</td><td>").Append(E(Labels.Multipart(r.Multipart))).Append(r.VariantsBlocked >= 0 ? $" ({r.VariantsBlocked}/{r.VariantsTotal})" : "").Append("</td><td>")
+                  .Append(E(AppCell(r))).Append(ncsc != r.NcscStatus && r.NcscStatus.Length > 0 ? "</td><td title=\"" + E(r.NcscStatus) + "\">" : "</td><td>").Append(E(ncsc)).Append("</td><td>").Append(E(Labels.Multipart(r.Multipart))).Append(r.VariantsBlocked >= 0 ? $" ({r.VariantsBlocked}/{r.VariantsTotal})" : "").Append("</td><td>")
                   .Append(E(r.WafSummary.Length > 0 ? r.WafSummary : "–")).Append("</td><td>").Append(r.PhpSurface.Count).Append("</td><td>").Append(CycleCell(r, s)).Append("</td><td class=\"why\">").Append(E(ShortReason(r.VerdictReason))).Append("</td></tr>");
             }
             sb.Append("</tbody></table>");
@@ -239,6 +240,27 @@ public static class CompactReportGenerator
         // ---- inventario (v1.6): solo quando la sessione ne ha uno ----
         try { sb.Append(InventoryReportSection.InventorySection(s, Inventory.InventoryMatcher.Read(s.Folder, s.AppVersion))); } catch { }
 
+        // ---- elenco per Excel (v1.8): tutti i servizi in evidenza, un nome per riga, celle brevi senza a capo ----
+        var xl = ExcelRows(s);
+        sb.Append("<section><h2>").Append(E(L.T("Elenco per Excel"))).Append("</h2>");
+        sb.Append("<p class=\"note\">").Append(E(L.F("{0} servizi in evidenza (vulnerabili, probabilmente vulnerabili, mitigati al perimetro, non determinabili, PHP forse): un solo nome per riga, testi brevi, nessuna andata a capo. Selezionare la tabella e incollarla in Excel; lo stesso elenco è nel file {1}.", xl.Rows.Count, ExcelCsvName(s.AppVersion)))).Append("</p>");
+        if (xl.Rows.Count > MaxExcelRowsInHtml)
+            sb.Append("<p class=\"note\">").Append(E(L.F("Nel report le prime {0} righe; l'elenco completo è nel file CSV.", MaxExcelRowsInHtml))).Append("</p>");
+        if (xl.Rows.Count > 0)
+        {
+            sb.Append("<table class=\"xl\"><thead><tr>");
+            foreach (var h in xl.Header) sb.Append("<th>").Append(E(h)).Append("</th>");
+            sb.Append("</tr></thead><tbody>");
+            foreach (var row in xl.Rows.Take(MaxExcelRowsInHtml))
+            {
+                sb.Append("<tr class=\"x\">");
+                foreach (var c in row) sb.Append("<td>").Append(E(c)).Append("</td>");
+                sb.Append("</tr>");
+            }
+            sb.Append("</tbody></table>");
+        }
+        sb.Append("</section>");
+
         // ---- piè di pagina ----
         sb.Append("<footer>");
         if (!string.IsNullOrWhiteSpace(fullReportFileName))
@@ -273,6 +295,55 @@ public static class CompactReportGenerator
     public static bool IsPhpSuspect(ScanResult r) => r.HttpReachable && !r.PhpDetected && r.PhpPresence == "maybe";
 
     /// <summary>Tutti i nomi del servizio (nome della riga, scoperti, stesso contenuto, stesso esito), deduplicati e ordinati, mai troncati: i nomi dicono chi deve agire.</summary>
+    /// <summary>v1.8: stato NCSC-NL in forma breve per la tabella (la frase intera sta nel suggerimento e nella scheda).</summary>
+    public static string NcscShort(string status)
+    {
+        if (status.Length == 0) return "–";
+        if (status.Contains("dipende dalla versione di PHP", StringComparison.Ordinal) || status.Contains("depends on the PHP version", StringComparison.Ordinal)) return L.T("affetto: dipende dalla versione di PHP");
+        string t = status.StartsWith("NCSC-NL: ", StringComparison.Ordinal) ? status["NCSC-NL: ".Length..] : status;
+        return t.Length > 48 ? t[..47] + "…" : t;
+    }
+
+    /// <summary>Righe dell'elenco per Excel incorporate nel report (oltre, il CSV): tiene il report compatto anche su decine di migliaia di righe.</summary>
+    public const int MaxExcelRowsInHtml = 300;
+
+    /// <summary>Nome del file CSV dell'elenco per Excel (v1.8).</summary>
+    public static string ExcelCsvName(string appVersion) => $"elenco_v{appVersion}.csv";
+
+    /// <summary>
+    /// Elenco per Excel (v1.8): servizi in evidenza (verdetti da tenere in considerazione + PHP forse), un solo nome per riga (quello della riga,
+    /// altrimenti il primo tra i nomi ripiegati o scoperti) con il conteggio degli altri, colonne fisse e brevi, ordine per priorità poi per IP.
+    /// </summary>
+    public static (List<string> Header, List<List<string>> Rows) ExcelRows(ScanSession s)
+    {
+        var header = new List<string> { L.T("IP"), L.T("Nome"), L.T("Altri nomi"), L.T("Porta"), L.T("Verdetto"), L.T("Priorità"), L.T("PHP"), L.T("Versione"), L.T("SAPI"), L.T("App"), L.T("Barriera"), L.T("WAF"), L.T("Referente"), L.T("Ciclo") };
+        var rows = new List<List<string>>();
+        var sel = s.Results.Where(r => Attention.Contains(r.Verdict) || IsPhpSuspect(r)).OrderByDescending(r => r.Priority).ThenBy(r => r.SortKey, StringComparer.Ordinal).ThenBy(r => r.Port).ThenBy(r => r.HostHeader, StringComparer.Ordinal);
+        foreach (var r in sel)
+        {
+            var names = HostLists.Names([r]);
+            string name = names.Count > 0 ? names[0] : "";
+            int others = Math.Max(0, names.Count - 1);
+            string waf = r.Waf.Count > 0 ? string.Join("/", r.Waf.Select(w => w.Name).Distinct(StringComparer.OrdinalIgnoreCase)) : "";
+            rows.Add([
+                HostLists.HostIp(r), name, others > 0 ? others.ToString() : "", r.Port + (r.Scheme.Length > 0 ? " " + r.Scheme : ""), Labels.Verdict(r.Verdict), Labels.Priority(r.Priority),
+                r.PhpDetected ? L.T("sì") : IsPhpSuspect(r) ? L.T("forse") : L.T("no"), r.PhpVersionRaw, r.Sapi.Length > 0 ? Labels.Sapi(r.Sapi) : "",
+                r.Application + (r.ApplicationVersion.Length > 0 ? " " + r.ApplicationVersion : ""), Labels.Multipart(r.Multipart), waf, r.InventoryOwner, s.Cycles > 1 ? r.Cycle.ToString() : "",
+            ]);
+        }
+        return (header, rows);
+    }
+
+    /// <summary>Elenco per Excel come CSV (stesso dialetto dei CSV di sessione).</summary>
+    public static string ExcelCsv(ScanSession s, Output.CsvFormat csv)
+    {
+        var (header, rows) = ExcelRows(s);
+        var sb = new StringBuilder();
+        sb.Append(string.Join(csv.Sep, header.Select(csv.Escape))).Append("\r\n");
+        foreach (var row in rows) sb.Append(string.Join(csv.Sep, row.Select(csv.Escape))).Append("\r\n");
+        return sb.ToString();
+    }
+
     public static string NamesCell(ScanResult r)
     {
         var names = HostLists.Names([r]);
@@ -346,6 +417,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px
 table.kv{width:auto;margin:6px 0 10px}table.kv th{width:180px;white-space:nowrap}
 .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px}.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:var(--bg);min-width:150px}
 .kpi .n{display:block;font-size:22px;font-weight:600}.kpi .l{display:block;font-size:12px;color:var(--muted)}.kpi .h{display:block;font-size:11px;color:var(--muted)}
+table.att td:nth-child(1),table.att td:nth-child(3),table.att td:nth-child(4),table.att td:nth-child(5),table.att td:nth-child(6),table.att td:nth-child(7),table.att td:nth-child(10),table.att td:nth-child(13),table.xl td,table.xl th{white-space:nowrap}table.att td:nth-child(2){max-width:280px;word-break:break-all}table.att td.why{min-width:260px}table.att td:nth-child(9){min-width:140px}table.xl{font-size:12px}
 .kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}.kpi.maybe{background:#f3eeff;border-color:#c4b5fd}.kpi.maybe .n{color:#6d28d9}.note.maybe{background:#f3eeff;border-left:4px solid #7c3aed;padding:6px 10px;color:var(--fg)}table.sus tbody tr{background:#f3eeff}
 .b{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}.b.bad{background:var(--bad-soft);color:var(--bad)}.b.warn{background:var(--warn-soft);color:var(--warn)}.b.ok{background:var(--ok-soft);color:var(--ok)}.b.muted{background:var(--soft);color:var(--muted)}
 table.att td:nth-child(-n+2),table.exp td:nth-child(-n+2),table.hosts td:nth-child(-n+2),table.sus td:nth-child(-n+2),table.loq td:nth-child(-n+2),table.app td:nth-child(4){font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}td.why{font-size:12px;color:var(--muted)}

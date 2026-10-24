@@ -27,6 +27,8 @@ public static class ReportGenerator
         File.WriteAllText(full, Build(session, PerCycleSection(session, folder)), new UTF8Encoding(false));
         var compact = SessionFiles.NextReportPath(folder, SessionFiles.CompactReportPrefix, session.AppVersion);
         File.WriteAllText(compact, BuildCompact(session, Path.GetFileName(full)), new UTF8Encoding(false));
+        // v1.8: elenco per Excel anche come CSV accanto al report
+        try { File.WriteAllText(Path.Combine(folder, CompactReportGenerator.ExcelCsvName(session.AppVersion)), CompactReportGenerator.ExcelCsv(session, new CsvFormat(session.Config.CsvDialect)), SessionFiles.Utf8Bom); } catch { }
         return compact;
     }
 
