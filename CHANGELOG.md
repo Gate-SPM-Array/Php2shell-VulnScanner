@@ -2,6 +2,17 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.9 — 2026-10-24
+
+Via del maintainer dopo il giro della v1.8 sulla /22 (2 cicli): la seconda chance recuperava 3-4 host su 914 ma costava 11,5 min per ciclo su 27 (4 corsie × timeout 3 s), e tutta a fine ciclo. Versione per il giro notturno sulla /20 e sulla /22.
+
+### Modificato
+- **Seconda chance più leggera e anticipata**: corsie = metà dei thread (minimo 4, mai più dei thread) invece di 4 fisse; timeout 1,5× invece di 2×; parte **appena la coda degli host si svuota**, servita dai lavoratori liberi mentre gli ultimi nomi finiscono; gli host ancora in corso in quel momento vengono riprovati in coda alla fine. Stima sulla /22 con 16 thread: 2-3 min invece di 11,5, stessi host recuperati. Il log dice quanti host entrano in seconda chance e quanti vengono recuperati.
+- Un host entra nella seconda chance solo dopo che le sue righe "Non raggiungibile" sono uscite, così la riemissione le sostituisce sempre.
+
+### Test
+- 390 test (+3, `V19Tests`): timeout 1,5× nel log, seconda chance che parte con la coda degli host vuota mentre un host è ancora in corso (host in ritardo recuperato in coda), corsie calcolate dai thread.
+
 ## v1.8 — 2026-10-24
 
 Costruita sulle note del maintainer durante le prove della v1.7 sulla /20 (giro "tirato" a 36 thread e giro a 16 thread) e su una regola sua sul consolidamento. Nessuna sonda in più sugli host che rispondono.

@@ -128,6 +128,11 @@ public sealed class ScanEngine
         public int Outstanding;
         /// <summary>Tetto dell'alive check (v1.8), indipendente dai thread HTTP.</summary>
         public SemaphoreSlim? AliveSem;
+        /// <summary>Corsie della seconda chance (v1.9): metà dei thread, minimo 4.</summary>
+        public SemaphoreSlim? RetrySem;
+        /// <summary>Coda della seconda chance (v1.9): riempita appena la coda degli host si svuota, servita dai lavoratori liberi mentre finiscono i nomi.</summary>
+        public readonly ConcurrentQueue<ScanTarget> RetryQueue = new();
+        public int RetryStarted, RetryCount, RetryAliveBefore;
         /// <summary>Host saltati perché non confermati attivi (v1.8): candidati alla seconda chance a fine ciclo.</summary>
         public readonly ConcurrentBag<(ScanTarget Target, List<int> Ports)> NotAlive = [];
         public int Total, Done, HostsDone;
@@ -339,22 +344,23 @@ public sealed class ScanEngine
             // finivano in coda dietro migliaia di host (16 min di attesa misurati sulla /20); ora ogni lavoratore prende prima un nome, poi un host.
             var hostQueue = new ConcurrentQueue<ScanTarget>(hosts);
             run.Outstanding = hosts.Count;
-            await RunWorkersAsync(run, cfg.Threads, hostQueue, ports, estimator, false).ConfigureAwait(false);
-
-            // v1.8: seconda chance per gli host non confermati attivi, a ritmo lento (ICMP + TCP sulle porte della scansione, timeout doppio):
-            // un ciclo "tirato" non perde host per sempre. Chi risponde viene scansionato per intero e la sua riga sostituisce quella "non raggiungibile".
-            if (cfg.Alive.Enabled && cfg.Alive.SkipIfNotAlive && cfg.Alive.Retry && !run.NotAlive.IsEmpty)
+            bool retryOn = cfg.Alive.Enabled && cfg.Alive.SkipIfNotAlive && cfg.Alive.Retry;
+            // v1.9: corsie della seconda chance = metà dei thread (minimo 4, mai più dei thread); timeout 1,5×. Sulla /22 con 4 corsie e timeout 2×
+            // costava 11,5 min per ciclo (914 host) per 3-4 host recuperati.
+            run.RetrySem = retryOn ? new SemaphoreSlim(Math.Max(1, Math.Min(cfg.Threads, Math.Max(4, cfg.Threads / 2)))) : null;
+            await RunWorkersAsync(run, cfg.Threads, hostQueue, ports, estimator).ConfigureAwait(false);
+            // v1.8/v1.9: seconda chance per gli host non confermati attivi (ICMP + TCP sulle porte della scansione, timeout 1,5×): un ciclo "tirato"
+            // non perde host per sempre; chi risponde viene scansionato per intero e la sua riga sostituisce quella "non raggiungibile".
+            // Dalla v1.9 parte appena la coda degli host si svuota (lavoratori liberi mentre finiscono i nomi); qui resta solo la coda finale
+            // degli host che erano ancora in corso a quel momento.
+            if (retryOn && !run.NotAlive.IsEmpty)
             {
-                var retry = run.NotAlive.ToList();
-                run.NotAlive.Clear();
-                run.Log(L.F("Seconda chance dell'alive check: {0} host non confermati riprovati a ritmo lento (ICMP + TCP {1}, timeout {2} ms)", retry.Count, string.Join(",", ports), cfg.Alive.TimeoutMs * 2));
-                int before = run.AliveHosts.Count;
-                var retryQueue = new ConcurrentQueue<ScanTarget>(retry.Select(x => x.Target));
-                run.Outstanding = retry.Count;
-                run.AliveSem = new SemaphoreSlim(Math.Max(1, Math.Min(4, cfg.Threads)));
-                await RunWorkersAsync(run, cfg.Threads, retryQueue, ports, estimator, true).ConfigureAwait(false);
-                run.Log(L.F("Seconda chance: {0} host recuperati su {1}", run.AliveHosts.Count - before, retry.Count));
+                StartRetry(run, ports);
+                run.Outstanding = run.RetryQueue.Count;
+                await RunWorkersAsync(run, cfg.Threads, new ConcurrentQueue<ScanTarget>(), ports, estimator).ConfigureAwait(false);
             }
+            if (retryOn && run.RetryStarted > 0)
+                run.Log(L.F("Seconda chance: {0} host recuperati su {1}", run.AliveHosts.Count - run.RetryAliveBefore, run.RetryCount));
         }
         catch (OperationCanceledException) { status = ScanStatus.Stopped; }
         finally
@@ -429,9 +435,10 @@ public sealed class ScanEngine
     /// quando code e lavori in corso sono a zero. La chiusura di un host (ripiegamento dei nomi, righe definitive) è l'ultimo lavoro sui
     /// nomi di quell'host, così nessun lavoratore resta fermo ad aspettare.
     /// </summary>
-    private async Task RunWorkersAsync(Run run, int workers, ConcurrentQueue<ScanTarget> hostQueue, List<int> ports, ScanEstimator estimator, bool retry)
+    private async Task RunWorkersAsync(Run run, int workers, ConcurrentQueue<ScanTarget> hostQueue, List<int> ports, ScanEstimator estimator)
     {
         var cfg = run.Cfg;
+        bool retryOn = run.RetrySem != null;
         async Task Worker()
         {
             while (true)
@@ -448,7 +455,16 @@ public sealed class ScanEngine
                 {
                     await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
                     var hostPorts = cfg.RandomOrder ? ports.OrderBy(_ => Random.Shared.Next()).ToList() : ports;
-                    try { await ScanHostAsync(run, host, hostPorts, estimator, retry).ConfigureAwait(false); }
+                    try { await ScanHostAsync(run, host, hostPorts, estimator, false).ConfigureAwait(false); }
+                    finally { Interlocked.Decrement(ref run.Outstanding); }
+                    continue;
+                }
+                // v1.9: coda degli host vuota: la seconda chance parte subito (una volta sola) e i lavoratori liberi la servono mentre gli altri finiscono i nomi
+                if (retryOn && Interlocked.CompareExchange(ref run.RetryStarted, 1, 0) == 0) StartRetry(run, ports);
+                if (run.RetryQueue.TryDequeue(out var again))
+                {
+                    await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
+                    try { await ScanHostAsync(run, again, ports, estimator, true).ConfigureAwait(false); }
                     finally { Interlocked.Decrement(ref run.Outstanding); }
                     continue;
                 }
@@ -460,6 +476,19 @@ public sealed class ScanEngine
         await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
+    /// <summary>Seconda chance (v1.9): sposta gli host non confermati raccolti finora nella coda della seconda chance (lavoro in più per i lavoratori).</summary>
+    private static void StartRetry(Run run, List<int> ports)
+    {
+        var batch = new List<ScanTarget>();
+        while (run.NotAlive.TryTake(out var x)) batch.Add(x.Target);
+        if (batch.Count == 0) return;
+        if (run.RetryCount == 0) { run.RetryAliveBefore = run.AliveHosts.Count; run.RetryStarted = 1; }
+        Interlocked.Add(ref run.RetryCount, batch.Count);
+        Interlocked.Add(ref run.Outstanding, batch.Count);
+        run.Log(L.F("Seconda chance dell'alive check: {0} host non confermati riprovati a ritmo lento (ICMP + TCP {1}, timeout {2} ms)", batch.Count, string.Join(",", ports), run.Cfg.Alive.TimeoutMs * 3 / 2));
+        foreach (var t in batch) run.RetryQueue.Enqueue(t);
+    }
+
     /// <summary>Un host: risoluzione e alive check una volta, qualunque sia il numero di porte, pre-controllo delle porte, poi le porte in sequenza; le righe per IP vanno in anteprima e la seconda passata sui nomi scoperti viene accodata (v1.8), con la chiusura dell'host come ultimo lavoro.</summary>
     private async Task ScanHostAsync(Run run, ScanTarget target, List<int> ports, ScanEstimator estimator, bool retry = false)
     {
@@ -469,7 +498,6 @@ public sealed class ScanEngine
 
         bool skipAll = info.Error != null || (info.Alive != null && info.Alive.State != AliveState.Alive && cfg.Alive.SkipIfNotAlive);
         if (retry && skipAll) return;   // seconda chance fallita: la riga "non raggiungibile" resta quella già emessa
-        if (skipAll && info.Error == null && info.Alive != null && cfg.Alive.Retry && !retry) run.NotAlive.Add((target, ports));
         Dictionary<int, (PortState State, double Ms)>? precheck = null;
         if (!skipAll && cfg.PortPrecheck && ports.Count > 1)
         {
@@ -560,6 +588,8 @@ public sealed class ScanEngine
         }
 
         FinishHost(run, target, results, [], [], retry);
+        // v1.9: candidato alla seconda chance solo dopo che le righe "non raggiungibile" sono uscite (la riemissione deve sostituirle, non precederle)
+        if (skipAll && info.Error == null && info.Alive != null && cfg.Alive.Retry && !retry) run.NotAlive.Add((target, ports));
     }
 
     /// <summary>Chiusura dell'host (v1.8): ripiegamento dei nomi nell'ordine delle coppie, poi le righe definitive (per IP ed extra).</summary>
@@ -685,8 +715,8 @@ public sealed class ScanEngine
         {
             // v1.8: tetto separato per l'alive check (sulla /20 con 36 thread × 13 sonde erano ~470 flussi aperti insieme e tutti i timeout);
             // nella seconda chance solo ICMP e TCP sulle porte della scansione, con timeout doppio
-            var acfg = retry ? new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = run.Ports.ToList(), UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 2, SkipIfNotAlive = cfg.Alive.SkipIfNotAlive } : cfg.Alive;
-            var sem = run.AliveSem;
+            var acfg = retry ? new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = run.Ports.ToList(), UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 3 / 2, SkipIfNotAlive = cfg.Alive.SkipIfNotAlive } : cfg.Alive;
+            var sem = retry ? run.RetrySem : run.AliveSem;
             if (sem != null) await sem.WaitAsync(run.Ct).ConfigureAwait(false);
             try
             {
