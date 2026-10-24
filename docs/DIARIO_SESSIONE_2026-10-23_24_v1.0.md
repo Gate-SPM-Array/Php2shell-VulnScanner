@@ -61,3 +61,10 @@ Legenda: **D** = richiesta/decisione del maintainer (David); **C** = azione o co
 - Regole di trascrizione più rigide per lo spazio GRC (da definire con il maintainer): questo diario è la prima bozza del formato.
 - Formato dell'orario (3 cifre di millisecondi) da confermare.
 - Nota tecnica SEC-OPS-ANA v.0.3: aggiornamenti elencati in `docs/CONTEXT.md`.
+
+## 24 ottobre 2026 — sera, sessione Claude Code (branch `claude/modest-hopper-1ewrba`)
+- **C** Ripresa su Claude Code: .NET 10 SDK installato dal repository apt Microsoft (download diretto bloccato dalla policy di rete); 367 test verdi; sorgenti v1.6 caricati dal maintainer identici al repository (SHA256 `20d8fe2a…e52fd`).
+- **D** Limite di upload in Claude Code: 30 MB per file; gli zip di sessione superano i 70 MB. **C** Vie proposte: caricare solo `scan.log` + `session.json` + `results.jsonl` (spezzato per righe se serve) o un estratto del log (`BUDGET`, `ADV-SKIP`, `errore`, `ciclo`).
+- **D** Richieste per la v1.7: (1) "PHP forse" evidenziato in tabella con riga colorata e pulsante/filtro dedicato; (2) "forse" in evidenza nel report, anche compatto; (3) fonti terze scaricate online per un repository pubblico. Immagine `1.png` (schermata della v1.6 in corso, ciclo 1 di 5) citata, non copiata.
+- **D** Decisione: punto 3 **lasciare com'è** (distribuzione dei dati derivati lecita con le licenze incluse). Punti 1-2 approvati in linea di principio; **via non ancora dato**, arriva a fine test della v1.6 su Windows. Regola confermata: nessuna nuova versione senza il suo ok.
+- **D** File di migrazione da Cowork caricati: `CLAUDE_PhpVulnScanner_v1.6_regola10.md` (identico al `CLAUDE.md` della PR #1) e `Trascrizione_2026-10-24_v2.docx`: da tenere in locale, mai su GitHub. **C** Copiati in `Trascrizioni/` (esclusa da git); trascrizione letta per intero; branch allineato a `main` (diario v1.0, proposta "Esporta per analisi" nel CONTEXT). PR #1 (regola 10, `tools/export_transcript.sh`) resta aperta in attesa del maintainer.
