@@ -38,12 +38,16 @@ Legenda: **D** = richiesta/decisione del maintainer (David); **C** = azione o co
 - **17:50 D** Ritratta la decisione delle 00:15: repository GitHub **privato** per continuare con Claude Code (credito cloud di 250 USD). **C** Repository locale inizializzato (107 file, grep anti-dati-cliente pulito), `docs/CONTEXT.md` sanificato. **18:00 D** Repo creato: `Gate-SPM-Array/Php2shell-VulnScanner`. **C** Push di `main` (2 commit).
 - **18:05 D** "Dove stanno le informazioni e la trascrizione di questa chat? Nello spazio GRC registriamo tutto." **C** Risposta: la trascrizione resta sui server claude.ai; il pannello "Avanzamento" è la lista dei task della sessione cloud, effimera; i registri durevoli sono CONTEXT (Project), CHANGELOG/CLAUDE.md/docs (repo), memoria del Project, zip in chat. **18:07 D** "Procedi almeno con il diario." → questo file (v1.0), nel repo e nel Project.
 
+- **18:23 D** "Esporta in Word tutta la chat con le immagini." **C** Correzione di quanto detto alle 18:05: la sessione tiene un file di trascrizione; esportazione `Trascrizione_Chat_PhpVulnScanner_2026-10-24_v1.0.docx` (33 pagine, 24 immagini): verbatim dalle 11:57, riassunto automatico per la parte precedente (il contesto era stato compattato; la chat su claude.ai non è rileggibile perché segnalata dal classificatore). Non messo nel repo né nel Project (dati del cliente).
+- **19:04 D** "Elabora la versione aggiornata di CLAUDE.md con la trascrizione in Word attiva." **C** Regola 10 nel `CLAUDE.md` (esportazione a ogni consegna, decisione e prima di ogni compattazione; diario sanificato in parallelo), strumento `tools/export_transcript.sh` + `tools/transcript/`, cartella `Trascrizioni/` esclusa da git; provato su questa sessione (27 pagine).
+
 ## Decisioni stabili al termine della sessione
 1. Nessuna nuova versione senza il via del maintainer (regola 9 di `CLAUDE.md`).
 2. Difensivo per costruzione: niente esploit, niente esaurimento memoria, niente richieste che scrivano stato nella sessione del bersaglio; esposizioni = solo esistenza.
 3. Ogni consegna = nuova versione + voce nel CHANGELOG; file di sessione sempre leggibili all'indietro; dati del cliente mai nei sorgenti.
 4. Qualità della detection prima della velocità; i nomi scoperti non si tagliano mai nel report compatto; le informazioni raccolte valgono come vulnerabilità organizzativa.
-5. Le "sensazioni" si verificano sui dati; contare le righe `errore` nel `scan.log`; misurare l'occupazione dei thread dal `results.jsonl` quando un ciclo è lento.
+5. Trascrizione attiva: esportazione in Word a ogni consegna, decisione e prima di ogni compattazione (regola 10 di `CLAUDE.md`).
+6. Le "sensazioni" si verificano sui dati; contare le righe `errore` nel `scan.log`; misurare l'occupazione dei thread dal `results.jsonl` quando un ciclo è lento.
 
 ## Dove sta cosa
 | Informazione | Dove | Durata |
