@@ -463,9 +463,12 @@ public partial class MainWindow : Window
         r.WafSummary.Length > 0 ? r.WafSummary : "–",
         Labels.Verdict(r.Verdict), Labels.Priority(r.Priority), r.DurationMs.ToString("F0", C),
         r.History.Count > 1 ? (ResultMerger.VerdictChanged(r) ? "Δ " : "") + r.Cycle.ToString(C) + "/" + r.History.Count.ToString(C) : r.Cycle.ToString(C),
-        r.VerdictReason, Labels.VerdictClass(r.Verdict), r);
+        r.VerdictReason, r.PhpPresence == "maybe" && !r.PhpDetected && r.HttpReachable ? "maybe" : Labels.VerdictClass(r.Verdict), r);   // v1.7: riga "forse" in lilla
 
     /// <summary>Riga "attiva": host confermato dall'alive check o, con alive check spento, con una risposta.</summary>
+    /// <summary>Riga "PHP forse" (v1.7): HTTP risponde, nessuna prova di PHP, indizi passivi sopra soglia (stessa regola del report compatto).</summary>
+    private static bool IsMaybeRow(ScanResult r) => CompactReportGenerator.IsPhpSuspect(r);
+
     private static bool IsAliveRow(ScanResult r) => r.Alive == AliveState.Alive || (r.Alive == AliveState.NotTested && (r.HttpReachable || r.Tls is { Handshake: true }));
 
     private void UpdateKpis()
@@ -477,9 +480,10 @@ public partial class MainWindow : Window
         var http = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int maybe = 0;
+        var maybeHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var x in _rows)
         {
-            if (x.Result.PhpPresence == "maybe") maybe++;
+            if (IsMaybeRow(x.Result)) { maybe++; maybeHosts.Add(x.Result.DisplayIp); }
             counts[(int)x.Result.Verdict]++;
             hostsBy[(int)x.Result.Verdict].Add(x.Result.DisplayIp);
             hosts.Add(x.Result.DisplayIp);
@@ -488,7 +492,8 @@ public partial class MainWindow : Window
         }
         string Hosts(Verdict v) => counts[(int)v] > 0 ? L.F("su {0} host", hostsBy[(int)v].Count) : "";
         KpiVulnHosts.Text = Hosts(Verdict.VulnerableByVersion); KpiLikelyHosts.Text = Hosts(Verdict.LikelyVulnerable); KpiUndetHosts.Text = Hosts(Verdict.Undetermined);
-        KpiMitigHosts.Text = Hosts(Verdict.MitigatedAtEdge); KpiFixedHosts.Text = Hosts(Verdict.FixedByVersion); KpiNoPhpHosts.Text = Hosts(Verdict.NoPhpDetected) + (maybe > 0 ? " " + L.F("(di cui {0} con indizi)", maybe) : ""); KpiUnreachHosts.Text = Hosts(Verdict.NotReachable);
+        KpiMitigHosts.Text = Hosts(Verdict.MitigatedAtEdge); KpiFixedHosts.Text = Hosts(Verdict.FixedByVersion); KpiNoPhpHosts.Text = Hosts(Verdict.NoPhpDetected);
+        KpiMaybe.Text = maybe.ToString(C); KpiMaybeHosts.Text = maybe > 0 ? L.F("su {0} host", maybeHosts.Count) : ""; KpiUnreachHosts.Text = Hosts(Verdict.NotReachable);
         KpiAliveSub.Text = alive.Count > 0 ? L.F("{0} con HTTP", http.Count) : "";
         KpiVuln.Text = counts[(int)Verdict.VulnerableByVersion].ToString(C);
         KpiLikely.Text = counts[(int)Verdict.LikelyVulnerable].ToString(C);
@@ -601,6 +606,7 @@ public partial class MainWindow : Window
         if (o is not ResultRow row) return false;
         var r = row.Result;
         if (_kpiFilter == "alive" && !IsAliveRow(r)) return false;
+        if (_kpiFilter == "maybe" && !IsMaybeRow(r)) return false;
         if (!Passes(_verdictItems, r.Verdict.ToString())) return false;
         if (!Passes(_priorityItems, r.Priority.ToString())) return false;
         if (!Passes(_aliveItems, r.Alive.ToString())) return false;
@@ -654,9 +660,9 @@ public partial class MainWindow : Window
     private void Kpi_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is not Border b || b.Tag is not string tag) return;
-        if (tag == "alive")
+        if (tag is "alive" or "maybe")
         {
-            _kpiFilter = _kpiFilter == "alive" ? "" : "alive";
+            _kpiFilter = _kpiFilter == tag ? "" : tag;
             HighlightKpi();
             RefreshFilter();
             return;
@@ -671,7 +677,7 @@ public partial class MainWindow : Window
         foreach (var b in FindKpis())
         {
             string tag = (string?)b.Tag ?? "";
-            bool on = tag == "alive" ? _kpiFilter == "alive" : _verdictItems.Any(i => i.IsChecked && i.Key == tag);
+            bool on = tag is "alive" or "maybe" ? _kpiFilter == tag : _verdictItems.Any(i => i.IsChecked && i.Key == tag);
             b.BorderBrush = on ? accent : line;
         }
     }

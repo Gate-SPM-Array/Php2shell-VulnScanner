@@ -34,3 +34,6 @@ private-data/
 
 # Trascrizioni delle sessioni (regola 11 di CLAUDE.md): contengono dati del cliente
 Trascrizioni/
+
+# Pattern dei dati cliente per tools/package.sh (regola 7 di CLAUDE.md)
+tools/private-patterns.txt

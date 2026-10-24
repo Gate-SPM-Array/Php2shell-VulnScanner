@@ -25,7 +25,7 @@ Not reachable (alive check unconfirmed with skip on, port closed at pre-check, o
 - HTTP headers are collected with `NonValidated` (raw values): the normal enumeration splits `Server: Apache/2.4 (Debian) PHP/8.1` into three values and hides the PHP version (bug fixed in v1.2, keep it that way).
 - SAPI: the `Server` banner (mod_fcgid / proxy_fcgi) takes precedence over the missing-file probe; a 404 with X-Powered-By means mod_php only when the banner does not declare FastCGI.
 - Terminology: a **host** is an IP address; a **service** is a table row (IP + port + optional name). Tiles count services and, below, distinct hosts. A discovered name that returns the same content as the default vhost gets no row (`SameContentNames` on the IP row); since v1.5 neither does a name with the same *outcome* (verdict, version, SAPI, application, barrier, WAF, priority: `SameOutcomeNames`). Every observation still goes to `results.jsonl`, and the compact report lists every name (names are what the maintainer needs to find the people who must act).
-- Performance rules (v1.6): `SessionWriter` never serialises inside its lock (snapshot, then streaming rewrite on a background task); every optional probe checks `ScanContext.OverBudget`; a host answering the same 5xx on every path is catch-all and path probes are skipped.
+- Performance rules (v1.6): `SessionWriter` never serialises inside its lock (snapshot, then streaming rewrite on a background task); every optional probe checks `ScanContext.OverBudget`; a host answering the same 5xx on every path is catch-all and path probes are skipped (v1.7: pages answering 3xx are left out of that comparison). v1.7: the second pass on discovered names runs on the pass thread pool (`Run.Sem`), the host thread releases its slot while waiting; folding stays sequential in name order; IP rows are previewed (`Run.Preview` → `ResultReady`) before the name pass and re-emitted with the same key at the end of the host; session files get only the final row.
 - Timestamps: `Stamp.Local` = `yyyy-MM-dd HH:mm:ss,fff`; log lines carry local time plus UTC. Results are sorted by `TargetParser.SortKey` (IPv4 numeric, IPv6, names).
 
 ## Build
@@ -35,6 +35,7 @@ dotnet test -c Release
 dotnet publish src/PhpVulnScanner.App -c Release -r win-x64 -o publish -p:DebugType=none
 ```
 Publish produces a single self-contained `PhpVulnScanner.exe` plus `lang\en.json`.
+`tools/package.sh <ver>` builds the exe and the two zips (`OUT=<dir>` chooses the output folder); it greps the sources for the customer patterns listed in `tools/private-patterns.txt` (git-ignored, one regex per line: real IP prefixes and names never go into the script itself) and excludes `Trascrizioni/`.
 Release packages are named with the version: `PhpVulnScanner_vX.Y[.Z]_win-x64.zip` (exe, `lang\en.json`, guides, READMEs, CHANGELOG, LICENSE, THIRD-PARTY-NOTICES, `LEGGIMI_vX.Y[.Z].txt`, example target list).
 
 ## Conventions

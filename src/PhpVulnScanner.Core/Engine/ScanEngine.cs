@@ -117,7 +117,11 @@ public sealed class ScanEngine
         public required Action<ScanResult> Emit;
         /// <summary>Osservazione ripiegata su un'altra riga (nome con lo stesso contenuto o lo stesso esito): solo in results.jsonl, nessuna riga in tabella.</summary>
         public required Action<ScanResult> Observe;
+        /// <summary>Anteprima (v1.7): riga per IP già completa, mostrata in tabella prima della seconda passata sui nomi; la stessa chiave viene poi riemessa con <see cref="Emit"/>.</summary>
+        public required Action<ScanResult> Preview;
         public required PauseToken Pause;
+        /// <summary>Semaforo dei thread della passata (v1.7): la seconda passata sui nomi lo usa per girare in parallelo invece che in sequenza sul thread dell'host.</summary>
+        public SemaphoreSlim? Sem;
         public int Total, Done, HostsDone;
         public readonly ConcurrentDictionary<string, byte> AliveHosts = new(StringComparer.OrdinalIgnoreCase);
         public readonly ConcurrentDictionary<string, byte> HttpHosts = new(StringComparer.OrdinalIgnoreCase);
@@ -210,6 +214,7 @@ public sealed class ScanEngine
                         ResultReady?.Invoke(outR);
                     },
                     Observe = r => { r.Cycle = cycle; writer?.Observe(r); },
+                    Preview = r => { r.Cycle = cycle; ResultReady?.Invoke(r); },
                 };
                 var passResults = new ConcurrentBag<ScanResult>();
                 var origEmit = run.Emit;
@@ -303,6 +308,7 @@ public sealed class ScanEngine
         int hostsTotal = hosts.Count;
 
         var sem = new SemaphoreSlim(cfg.Threads);
+        run.Sem = sem;
         using var progressCts = CancellationTokenSource.CreateLinkedTokenSource(run.Ct);
         var progressLoop = ProgressLoopAsync(run, estimator, hostsTotal, progressCts.Token);
 
@@ -448,52 +454,92 @@ public sealed class ScanEngine
             var httpPorts = results.Where(r => r.HttpReachable).Select(r => r.Port).Distinct().ToList();
             if (rescan.Count > 0 && httpPorts.Count > 0)
             {
+                // v1.7: le righe per IP sono complete: anteprima in tabella subito, senza aspettare la seconda passata sui nomi (che può durare
+                // decine di minuti su un host con 10 nomi); la stessa chiave viene riemessa alla fine dell'host con nomi ripiegati e test NAME-*
+                foreach (var r in results) run.Preview(r);
                 Interlocked.Add(ref run.Total, rescan.Count * httpPorts.Count);
                 run.Log(L.F("{0}: {1} nomi scoperti ({2}), seconda passata su {3} porte", target.Host, rescan.Count, string.Join(", ", rescan.Take(5)) + (rescan.Count > 5 ? " …" : ""), httpPorts.Count));
-                foreach (var name in rescan)
-                    foreach (int port in httpPorts)
+                // v1.7: i nomi girano in parallelo sul pool dei thread della passata (prima in sequenza sul thread dell'host: 10 nomi × 2 porte
+                // × 60-120 s = 20-30 min per host, e a fine ciclo un solo thread al lavoro). Il thread dell'host cede il suo posto mentre aspetta.
+                // Il ripiegamento (stesso contenuto / stesso esito) resta sequenziale e nell'ordine dei nomi, così l'esito è identico a prima.
+                var pairs = new List<(string Name, int Port)>();
+                foreach (var name in rescan) foreach (int port in httpPorts) pairs.Add((name, port));
+                var scanned = await ScanNamesAsync(run, target, info, hostPivot, pairs).ConfigureAwait(false);
+                foreach (var (name, port, r) in scanned)
+                {
+                    var ipRow = results.FirstOrDefault(x => x.Port == port);
+                    if (cfg.FoldSameContentNames && ipRow != null && SameContent(ipRow, r, name))
                     {
-                        run.Ct.ThrowIfCancellationRequested();
-                        var r = await ScanOneAsync(run, target, port, info, false, name, (PortState.Open, 0)).ConfigureAwait(false);
-                        if (hostPivot != null && r.HttpReachable)
+                        // il nome è il vhost predefinito: nessuna riga in più, il nome va nella colonna Nome della riga per IP; l'osservazione resta in results.jsonl
+                        if (!ipRow.SameContentNames.Contains(name)) ipRow.SameContentNames.Add(name);
+                        ipRow.Add("NAME-SAME", L.T("Nome con lo stesso contenuto"), TestOutcome.Info, L.F("{0}: stesso contenuto del vhost predefinito (stato, intestazioni, versione, applicazione e corpo uguali): nessuna riga aggiuntiva", name));
+                        Interlocked.Decrement(ref run.Total);
+                        run.Log(L.F("{0}:{1} {2}: stesso contenuto del vhost predefinito, riga non aggiunta", target.Host, port, name));
+                        run.Observe(r);
+                        continue;
+                    }
+                    if (cfg.FoldSameOutcomeNames)
+                    {
+                        // v1.5: contenuto diverso ma stesso esito della riga per IP o di un nome già tenuto: il nome va nella colonna Nome del
+                        // "titolare", la riga non si aggiunge; l'osservazione completa resta in results.jsonl
+                        var keeper = ipRow != null && SameOutcome(ipRow, r) ? ipRow : extra.FirstOrDefault(x => x.Port == port && SameOutcome(x, r));
+                        if (keeper != null)
                         {
-                            // i risultati a livello di host (FastCGI 9000) valgono anche per il nome: copiati prima del verdetto definitivo, così il confronto dell'esito è alla pari
-                            CopyHostLevel(hostPivot, r);
-                            VerdictEngine.Apply(r);
-                        }
-                        var ipRow = results.FirstOrDefault(x => x.Port == port);
-                        if (cfg.FoldSameContentNames && ipRow != null && SameContent(ipRow, r, name))
-                        {
-                            // il nome è il vhost predefinito: nessuna riga in più, il nome va nella colonna Nome della riga per IP; l'osservazione resta in results.jsonl
-                            if (!ipRow.SameContentNames.Contains(name)) ipRow.SameContentNames.Add(name);
-                            ipRow.Add("NAME-SAME", L.T("Nome con lo stesso contenuto"), TestOutcome.Info, L.F("{0}: stesso contenuto del vhost predefinito (stato, intestazioni, versione, applicazione e corpo uguali): nessuna riga aggiuntiva", name));
+                            if (!keeper.SameOutcomeNames.Contains(name)) keeper.SameOutcomeNames.Add(name);
+                            keeper.Add("NAME-OUTCOME", L.T("Nome con lo stesso esito"), TestOutcome.Info, L.F("{0}: stesso esito della riga (verdetto, versione, SAPI, applicazione, barriera, WAF, priorità): nessuna riga aggiuntiva", name));
                             Interlocked.Decrement(ref run.Total);
-                            run.Log(L.F("{0}:{1} {2}: stesso contenuto del vhost predefinito, riga non aggiunta", target.Host, port, name));
+                            run.Log(L.F("{0}:{1} {2}: stesso esito di {3}, riga non aggiunta", target.Host, port, name, keeper.Display));
                             run.Observe(r);
                             continue;
                         }
-                        if (cfg.FoldSameOutcomeNames)
-                        {
-                            // v1.5: contenuto diverso ma stesso esito della riga per IP o di un nome già tenuto: il nome va nella colonna Nome del
-                            // "titolare", la riga non si aggiunge; l'osservazione completa resta in results.jsonl
-                            var keeper = ipRow != null && SameOutcome(ipRow, r) ? ipRow : extra.FirstOrDefault(x => x.Port == port && SameOutcome(x, r));
-                            if (keeper != null)
-                            {
-                                if (!keeper.SameOutcomeNames.Contains(name)) keeper.SameOutcomeNames.Add(name);
-                                keeper.Add("NAME-OUTCOME", L.T("Nome con lo stesso esito"), TestOutcome.Info, L.F("{0}: stesso esito della riga (verdetto, versione, SAPI, applicazione, barriera, WAF, priorità): nessuna riga aggiuntiva", name));
-                                Interlocked.Decrement(ref run.Total);
-                                run.Log(L.F("{0}:{1} {2}: stesso esito di {3}, riga non aggiunta", target.Host, port, name, keeper.Display));
-                                run.Observe(r);
-                                continue;
-                            }
-                        }
-                        extra.Add(r);
                     }
+                    extra.Add(r);
+                }
             }
         }
 
         foreach (var r in results) Complete(run, r);
         foreach (var r in extra) Complete(run, r);
+    }
+
+    /// <summary>
+    /// Seconda passata sui nomi in parallelo (v1.7): ogni coppia nome/porta prende un posto nel semaforo dei thread della passata; il thread
+    /// dell'host libera il proprio posto mentre aspetta e lo riprende alla fine, così il numero di richieste in volo resta quello configurato.
+    /// Risultati nell'ordine delle coppie (il ripiegamento che segue dipende dall'ordine).
+    /// </summary>
+    private async Task<List<(string Name, int Port, ScanResult Result)>> ScanNamesAsync(Run run, ScanTarget target, HostInfo info, ScanResult? hostPivot, List<(string Name, int Port)> pairs)
+    {
+        async Task<ScanResult> One((string Name, int Port) p)
+        {
+            var sem = run.Sem;
+            if (sem != null) await sem.WaitAsync(run.Ct).ConfigureAwait(false);
+            try
+            {
+                run.Ct.ThrowIfCancellationRequested();
+                await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
+                var r = await ScanOneAsync(run, target, p.Port, info, false, p.Name, (PortState.Open, 0)).ConfigureAwait(false);
+                if (hostPivot != null && r.HttpReachable)
+                {
+                    // i risultati a livello di host (FastCGI 9000) valgono anche per il nome: copiati prima del verdetto definitivo, così il confronto dell'esito è alla pari
+                    CopyHostLevel(hostPivot, r);
+                    VerdictEngine.Apply(r);
+                }
+                return r;
+            }
+            finally { sem?.Release(); }
+        }
+        var hostSem = run.Sem;
+        hostSem?.Release();   // il posto dell'host torna al pool finché i nomi girano
+        try
+        {
+            var tasks = pairs.Select(One).ToList();
+            var res = await Task.WhenAll(tasks).ConfigureAwait(false);
+            return pairs.Select((p, i) => (p.Name, p.Port, res[i])).ToList();
+        }
+        finally
+        {
+            if (hostSem != null) await hostSem.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Copia su <paramref name="r"/> i risultati dei test a livello di host (FastCGI 9000, esposizioni sulla 9000, test ADV-HOST) ottenuti sul pivot.</summary>

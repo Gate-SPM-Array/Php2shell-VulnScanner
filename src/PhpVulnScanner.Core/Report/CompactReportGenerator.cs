@@ -87,12 +87,14 @@ public static class CompactReportGenerator
             sb.Append("<div class=\"kpi ").Append(Labels.VerdictClass(v)).Append("\"><span class=\"n\">").Append(services).Append("</span><span class=\"l\">").Append(E(Labels.Verdict(v))).Append("</span><span class=\"h\">")
               .Append(E(L.F("{0} servizi su {1} host", services, hosts.Count))).Append(hinted > 0 ? " " + E(L.F("(di cui {0} con indizi)", hinted)) : "").Append("</span></div>");
         }
-        sb.Append("<div class=\"kpi warn\"><span class=\"n\">").Append(suspect.Count).Append("</span><span class=\"l\">").Append(E(L.T("PHP sospetto"))).Append("</span><span class=\"h\">")
+        sb.Append("<div class=\"kpi maybe\"><span class=\"n\">").Append(suspect.Count).Append("</span><span class=\"l\">").Append(E(L.T("PHP sospetto"))).Append("</span><span class=\"h\">")
           .Append(E(L.F("{0} servizi su {1} host", suspect.Count, suspect.Select(HostLists.HostIp).Distinct(StringComparer.OrdinalIgnoreCase).Count()))).Append("</span></div>");
         sb.Append("<div class=\"kpi muted\"><span class=\"n\">").Append(s.HostsAlive).Append("</span><span class=\"l\">").Append(E(L.T("Host attivi"))).Append("</span><span class=\"h\">")
           .Append(E(L.F("Host attivi {0} su {1}, {2} con HTTP", s.HostsAlive, s.HostsTotal, s.HostsHttp))).Append("</span></div>");
         sb.Append("</div>");
         sb.Append("<p class=\"note\">").Append(E(L.F("{0} servizi (righe bersaglio/porta/nome) su {1} host distinti.", results.Count, results.Select(HostLists.HostIp).Distinct(StringComparer.OrdinalIgnoreCase).Count()))).Append("</p>");
+        if (suspect.Count > 0)
+            sb.Append("<p class=\"note maybe\"><b>").Append(E(L.T("PHP forse"))).Append(":</b> ").Append(E(L.F("{0} servizi su {1} host rispondono senza prova di PHP ma con indizi passivi (sezione «PHP sospetto», righe in lilla nella tabella del report completo): da verificare sull'host prima di escluderli dal patching.", suspect.Count, suspect.Select(HostLists.HostIp).Distinct(StringComparer.OrdinalIgnoreCase).Count()))).Append("</p>");
 
         foreach (var c in Correlations(reachable, httpHosts.Count))
             sb.Append("<p class=\"note\"><b>").Append(E(L.T("Correlazione"))).Append(":</b> ").Append(E(L.F("\"{0}: {1}\" compare su {2} host su {3} con HTTP, con web server diversi: è con ogni probabilità un unico dispositivo di perimetro (IPS/WAF di rete) e non una protezione dei singoli host.", Labels.WafCategory(c.Category), c.Name, c.Hosts, httpHosts.Count))).Append("</p>");
@@ -160,9 +162,26 @@ public static class CompactReportGenerator
         }
         sb.Append("</section>");
 
-        // ---- host attivi ----
+        // ---- PHP sospetto (v1.7: subito dopo "da tenere in considerazione", prima degli host attivi) ----
         var hostRows = results.Where(r => HostLists.IsAlive(r) || r.HttpReachable).GroupBy(HostLists.HostIp, StringComparer.OrdinalIgnoreCase)
             .OrderBy(g => Targets.TargetParser.SortKey(g.Key), StringComparer.Ordinal).ToList();
+        var suspectRows = suspect.OrderByDescending(r => r.PhpHintScore).ThenBy(r => r.SortKey, StringComparer.Ordinal).ThenBy(r => r.Port).ToList();
+        sb.Append("<section><h2>").Append(E(L.T("PHP sospetto"))).Append("</h2>");
+        sb.Append("<p class=\"note\">").Append(E(L.T("Servizi senza prova di PHP ma con indizi (intestazioni, cookie, percorsi, pannelli): da verificare sull'host prima di escluderli."))).Append(' ')
+          .Append(E(L.F("{0} servizi su {1} host.", suspectRows.Count, suspectRows.Select(HostLists.HostIp).Distinct(StringComparer.OrdinalIgnoreCase).Count()))).Append("</p>");
+        if (suspectRows.Count > 0)
+        {
+            sb.Append("<table class=\"sus\"><thead><tr>");
+            foreach (var h in new[] { L.T("Bersaglio"), L.T("Nomi"), L.T("Porta"), L.T("Punteggio"), L.T("Indizi"), L.T("WAF") }) sb.Append("<th>").Append(E(h)).Append("</th>");
+            sb.Append("</tr></thead><tbody>");
+            foreach (var r in suspectRows)
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
+                  .Append(r.PhpHintScore).Append("</td><td>").Append(E(string.Join("; ", r.PhpHints))).Append("</td><td>").Append(E(r.WafSummary.Length > 0 ? r.WafSummary : "–")).Append("</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        sb.Append("</section>");
+
+        // ---- host attivi ----
         sb.Append("<section><h2>").Append(E(L.T("Host attivi"))).Append("</h2>");
         sb.Append("<p class=\"note\">").Append(E(L.F("{0} host attivi o con risposta HTTP; un rigo per indirizzo, verdetto peggiore tra le sue porte.", hostRows.Count))).Append("</p>");
         if (hostRows.Count > 0)
@@ -179,23 +198,6 @@ public static class CompactReportGenerator
                 sb.Append("<tr><td>").Append(E(g.Key)).Append("</td><td>").Append(E(names.Count > 0 ? string.Join(", ", names) : "–")).Append("</td><td>").Append(E(ports.Count > 0 ? string.Join(", ", ports) : "–")).Append("</td><td>")
                   .Append(Badge(Worst(g.Select(r => r.Verdict)))).Append("</td><td>").Append(E(hostApps.Count > 0 ? string.Join(", ", hostApps) : "–")).Append("</td><td>").Append(E(alive)).Append("</td></tr>");
             }
-            sb.Append("</tbody></table>");
-        }
-        sb.Append("</section>");
-
-        // ---- PHP sospetto: indizi senza prova ----
-        var suspectRows = suspect.OrderByDescending(r => r.PhpHintScore).ThenBy(r => r.SortKey, StringComparer.Ordinal).ThenBy(r => r.Port).ToList();
-        sb.Append("<section><h2>").Append(E(L.T("PHP sospetto"))).Append("</h2>");
-        sb.Append("<p class=\"note\">").Append(E(L.T("Servizi senza prova di PHP ma con indizi (intestazioni, cookie, percorsi, pannelli): da verificare sull'host prima di escluderli."))).Append(' ')
-          .Append(E(L.F("{0} servizi su {1} host.", suspectRows.Count, suspectRows.Select(HostLists.HostIp).Distinct(StringComparer.OrdinalIgnoreCase).Count()))).Append("</p>");
-        if (suspectRows.Count > 0)
-        {
-            sb.Append("<table class=\"sus\"><thead><tr>");
-            foreach (var h in new[] { L.T("Bersaglio"), L.T("Nomi"), L.T("Porta"), L.T("Punteggio"), L.T("Indizi"), L.T("WAF") }) sb.Append("<th>").Append(E(h)).Append("</th>");
-            sb.Append("</tr></thead><tbody>");
-            foreach (var r in suspectRows)
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
-                  .Append(r.PhpHintScore).Append("</td><td>").Append(E(string.Join("; ", r.PhpHints))).Append("</td><td>").Append(E(r.WafSummary.Length > 0 ? r.WafSummary : "–")).Append("</td></tr>");
             sb.Append("</tbody></table>");
         }
         sb.Append("</section>");
@@ -344,7 +346,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px
 table.kv{width:auto;margin:6px 0 10px}table.kv th{width:180px;white-space:nowrap}
 .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px}.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:var(--bg);min-width:150px}
 .kpi .n{display:block;font-size:22px;font-weight:600}.kpi .l{display:block;font-size:12px;color:var(--muted)}.kpi .h{display:block;font-size:11px;color:var(--muted)}
-.kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}
+.kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}.kpi.maybe{background:#f3eeff;border-color:#c4b5fd}.kpi.maybe .n{color:#6d28d9}.note.maybe{background:#f3eeff;border-left:4px solid #7c3aed;padding:6px 10px;color:var(--fg)}table.sus tbody tr{background:#f3eeff}
 .b{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}.b.bad{background:var(--bad-soft);color:var(--bad)}.b.warn{background:var(--warn-soft);color:var(--warn)}.b.ok{background:var(--ok-soft);color:var(--ok)}.b.muted{background:var(--soft);color:var(--muted)}
 table.att td:nth-child(-n+2),table.exp td:nth-child(-n+2),table.hosts td:nth-child(-n+2),table.sus td:nth-child(-n+2),table.loq td:nth-child(-n+2),table.app td:nth-child(4){font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}td.why{font-size:12px;color:var(--muted)}
 footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:10px}a{color:var(--accent)}

@@ -137,7 +137,7 @@ public static class ReportGenerator
         {
             i++;
             bool hasCard = r.HttpReachable || s.Config.ReportUnreachableDetails;
-            sb.Append("<tr class=\"row\" data-verdict=\"").Append(r.Verdict).Append("\" data-alive=\"").Append(r.Alive == AliveState.Alive || (!s.Config.Alive.Enabled && r.HttpReachable) ? "1" : "0").Append("\"><td class=\"mono\">").Append(E(Stamp.Local(r.StartedLocal))).Append("</td><td>")
+            sb.Append("<tr class=\"row").Append(CompactReportGenerator.IsPhpSuspect(r) ? " maybe" : "").Append("\" data-verdict=\"").Append(r.Verdict).Append("\" data-alive=\"").Append(r.Alive == AliveState.Alive || (!s.Config.Alive.Enabled && r.HttpReachable) ? "1" : "0").Append("\"><td class=\"mono\">").Append(E(Stamp.Local(r.StartedLocal))).Append("</td><td>")
               .Append(hasCard ? "<a href=\"#r" + i + "\">" + E(r.DisplayIp) + "</a>" : E(r.DisplayIp)).Append(ResultMerger.VerdictChanged(r) ? " <span class=\"badge warn\" title=\"" + E(string.Join(" | ", r.History)) + "\">Δ</span>" : "").Append("</td><td class=\"mono\">")
               .Append(E(NameColumn(r))).Append("</td><td>")
               .Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>").Append(E(Labels.Alive(r.Alive))).Append(r.AliveMethod.Length > 0 ? " (" + E(r.AliveMethod) + ")" : "").Append("</td><td>")
@@ -312,7 +312,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px
 table.kv{width:auto;margin:6px 0 10px}table.kv th{width:180px;white-space:nowrap}
 .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px}.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:var(--bg);color:var(--fg);cursor:pointer;min-width:120px;text-align:left;font:inherit}
 .kpi .n{display:block;font-size:22px;font-weight:600}.kpi .l{display:block;font-size:12px;color:var(--muted)}.kpi.active{outline:2px solid var(--accent)}
-.kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}
+.kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}tr.row.maybe td{background:#f3eeff}
 .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}.badge.bad{background:var(--bad-soft);color:var(--bad)}.badge.warn{background:var(--warn-soft);color:var(--warn)}.badge.ok{background:var(--ok-soft);color:var(--ok)}.badge.muted{background:var(--soft);color:var(--muted)}
 #q{width:100%;padding:7px 10px;margin:8px 0;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
 details.card{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0;background:var(--bg)}details.card>summary{cursor:pointer;font-size:14px}details.card[open]>summary{margin-bottom:8px}

@@ -43,7 +43,10 @@ public static class SurfaceDiscovery
     public static bool IsServerErrorEverywhere(HttpSnapshot miss, IEnumerable<HttpSnapshot> pages)
     {
         if (!miss.HasResponse || miss.Status < 500) return false;
-        var answered = pages.Where(s => s.HasResponse).ToList();
+        // v1.7: una pagina che risponde con un redirect (tipicamente "/" → https o → /login) non dice nulla del backend: se le altre pagine
+        // configurate e il file inesistente danno lo stesso 5xx, il backend è morto lo stesso (sulla /22: "/" 302, /index.php e il .php
+        // casuale 503 con lo stesso corpo, e 40 punti di ingresso provati a 1 s l'uno per nulla)
+        var answered = pages.Where(s => s.HasResponse && s.Status is < 300 or >= 400).ToList();
         if (answered.Count == 0 || answered.Any(s => s.Status != miss.Status)) return false;
         if (miss.Status is 502 or 503 or 504) return true;
         long len = miss.BodyLength;

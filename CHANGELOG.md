@@ -2,6 +2,27 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.7 — 2026-10-24
+
+Prima versione costruita da Claude Code sul repository. Via del maintainer dato in serata dopo le prove della v1.6 su una /22 (1022 host, 32 thread, 5 cicli consolidati, Massima detection). Nessuna richiesta HTTP in più; nessun test in meno.
+
+### Corretto
+- **Coda del ciclo su un thread solo.** La seconda passata sui nomi scoperti girava in sequenza sul thread dell'host: 10 nomi × 2 porte × 60-120 s = 20-28 min per ciascuno dei cinque host più "ricchi" della /22, e a fine ciclo un solo thread al lavoro per ~17 min su 37 (i nomi ripiegati non compaiono in `results.json` ma costano lo stesso). Ora ogni coppia nome/porta prende un posto nel pool dei thread della passata (il thread dell'host cede il suo mentre aspetta): il numero di richieste in volo resta quello configurato, il ripiegamento (stesso contenuto, stesso esito) resta sequenziale e nell'ordine dei nomi, l'esito è identico.
+- **Righe per IP in anteprima.** Le righe di un host uscivano tutte insieme alla fine dell'host, nomi compresi: nel ciclo 1 della /22 il riquadro "Vulnerabili per versione" diceva 4 fino alla fine del ciclo e 7 un attimo dopo (tre righe stavano sull'host con 10 nomi). Ora le righe per IP vanno in tabella appena complete e vengono riemesse (stessa chiave) a fine host con i nomi ripiegati; i file di sessione ricevono solo la riga definitiva.
+- **Catch-all 5xx con la radice in redirect.** La regola v1.6 chiedeva lo stesso 5xx anche su `/`; sulla /22 un servizio rispondeva 302 su `/` e 503 (stesso corpo di 299 byte) su `index.php`, sul file inesistente e su tutti i 40 punti di ingresso provati a 1 s l'uno. Le pagine in redirect ora non contano nel confronto: superficie e sonde su percorso si fermano (`L1-SURFACE-PROBE`, `ADV-SKIP`) se le pagine restanti e il file inesistente danno lo stesso 5xx.
+
+### Novità
+- **"PHP forse" in evidenza**: riga in lilla nella tabella principale; riquadro **PHP forse** (servizi, sotto gli host) cliccabile come filtro (secondo clic: tutti); il riquadro "PHP non rilevato" non porta più la nota "di cui N con indizi". Nel report compatto il riquadro "PHP sospetto" è lilla, un richiamo nel riepilogo dice quanti servizi e host, e la sezione **PHP sospetto** sta subito dopo "Da tenere in considerazione" (prima degli host attivi); nel report completo le righe "forse" della tabella sono in lilla.
+
+### Note
+- `scan.log` e `results.jsonl` "indietro" in Esplora file: i due file sono aperti in append con scrittura immediata; è Esplora file di Windows che non aggiorna dimensione e data dei file tenuti aperti. Aprendoli con un editor il contenuto è aggiornato.
+
+### Strumenti
+- `tools/package.sh`: `dotnet` dal PATH e cartella di uscita `OUT=<dir>` (funziona in Claude Code); i pattern dei dati cliente stanno in `tools/private-patterns.txt`, escluso da git, invece che nello script; `Trascrizioni/` esclusa dallo zip dei sorgenti.
+
+### Test
+- 374 test (+7, `V17Tests`): nomi in parallelo con lo stesso ripiegamento (tempo misurato sul server finto con ritardo), anteprima e riemissione della riga per IP, nessuna anteprima senza nomi, interruzione durante la passata sui nomi, catch-all con radice in redirect (unità e motore), "forse" nei due report. `FakePhpServer`: ritardo per risposta, redirect per percorso, vhost per qualunque nome, radice in redirect con il resto 5xx.
+
 ## v1.6 — 2026-10-24
 
 Versione "definitiva" richiesta dal maintainer (via alle 17:11), costruita su tre cose: le cinque attività utili ricavate da uno script Python di terzi (PHP Evidence Scanner 0.1.8), l'analisi dei due zip del pomeriggio (/20 con la v1.4.1 in due cicli, /22 con la v1.5) e la ricerca su CVE-2026-115560. Nessun esploit, nessuna richiesta che scriva stato: l'unica richiesta in più è la GET facoltativa dell'adozione dell'ID di sessione, spenta per impostazione predefinita.

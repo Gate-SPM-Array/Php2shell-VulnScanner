@@ -11,6 +11,7 @@ Copia sanificata del documento di contesto tenuto nel Project claude.ai "Scan PH
 - Terminologia: **host** = IP; **servizio** = riga (IP + porta + nome). I riquadri contano i servizi e, sotto, gli host.
 
 ## Stato
+- **v1.7 (24/10 sera, prima versione fatta da Claude Code, PR in attesa del maintainer)**, 374 test verdi: nomi scoperti in parallelo sul pool dei thread (la coda del ciclo era un thread solo: 5 host da 20-28 min nella /22), righe per IP in anteprima, catch-all 5xx anche con `/` in redirect, "PHP forse" in evidenza (riga lilla, riquadro-filtro, sezione in alto nel report compatto). Zip `PhpVulnScanner_v1.7_win-x64.zip` consegnati in chat.
 - **v1.6 (24/10 17:43)**, 367 test xunit verdi. Considerata la versione "definitiva" dal maintainer; la prossima evoluzione va fatta da Claude Code su questo repository (privato).
 - Storia: v1.0/1.1/1.2 (23/10), v1.3/1.3.1 (notte 23-24/10), v1.4 (12:12), v1.4.1 (regressione robots.txt), v1.4.2 (facciata), v1.5 (15:36), v1.6 (17:43). Dettagli nel `CHANGELOG.md`.
 - WPF non testabile in cloud: da provare su Windows le tendine multi-scelta dei filtri (v1.5), le colonne Referente/Certificato e i campi Budget/Inventario (v1.6).
@@ -33,7 +34,7 @@ Scanner difensivo per PHP2Shell (CVE-2026-109618/109619): alive check, pre-contr
 ## CVE-2026-115560 (advisory informativa PHP, 23/10/2026)
 Serve `session.serialize_handler` = `php_binary`/`php_serialize` in configurazione, riportato a `php` con `ini_set()` prima di `session_start()`, con upload progress attivo. Nessuna release corretta; mitigazione `session.upload_progress.enabled=0`. Invisibile dall'esterno: lo scanner la tratta solo tramite la pagina phpinfo quando esposta.
 
-## Proposta pronta per la v1.7 (via del maintainer ancora da dare)
+## Proposta ancora aperta (non entrata nella v1.7, via da dare)
 "Esporta per analisi…" (pulsante accanto a "Esporta log…" e `--analysis-bundle` da CLI): `<sessione>_analisi_vX.Y.zip` con `session.json`, `scan.log`, `results.json` e `results.jsonl` **senza corpi** (al posto del corpo lunghezza e SHA-256; restano stato, intestazioni, test, evidenze, durate), `tests.csv`, `results.csv`, i due report, i file degli host, a scelta `samples.json`. Motivo: Claude Code accetta upload fino a 30 MB; gli zip di sessione reali pesano 60-75 MB per i corpi in debug, mentre senza corpi stanno in 2-10 MB. Costo ~1 h.
 
 ## Punti aperti
