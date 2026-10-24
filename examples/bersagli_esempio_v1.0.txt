@@ -1,0 +1,7 @@
+# PHP Vuln Scanner - esempio di elenco bersagli (sostituire con i propri sistemi autorizzati)
+# Indirizzi di documentazione RFC 5737: non rispondono.
+192.0.2.10
+192.0.2.0/29
+198.51.100.10-198.51.100.12
+203.0.113.20-25
+www.example.org

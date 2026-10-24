@@ -1,0 +1,36 @@
+PHP Vuln Scanner v1.6 (2026-10-24) - programma portable per Windows x64
+
+1. Estrarre la cartella dove si preferisce (anche su chiavetta). Tenere insieme PhpVulnScanner.exe, lang\ e data\.
+2. Avviare PhpVulnScanner.exe (nessuna installazione, nessun runtime .NET da installare).
+3. Scrivere i bersagli (IP, reti CIDR, intervalli, nomi), controllare le porte (443); tutto cio' che riguarda lo strato PHP
+   (percorsi, livelli, superficie, nomi, test aggiuntivi) sta nella sezione "Detection PHP" (pulsanti Nessuno / Predefiniti /
+   Massima detection); premere "Avvia scansione".
+4. Alla fine: report compatto (pulsante "Report HTML") e report completo nella cartella Sessioni\, file host_attivi_v1.6.txt
+   per OpenVAS, esportazione log/CSV/JSON/host con "Esporta log...".
+5. Guida completa: tasto F1 (Guida_PhpVulnScanner_v1.6.html, in inglese Guide_...).
+6. Riga di comando senza finestra: PhpVulnScanner.exe --scan bersagli.txt [opzioni]; --help per l'elenco; codici di uscita 0/1/2/3/4.
+   Esempi: PhpVulnScanner.exe --scan 192.0.2.0/20 --ports 443,80,8080,8085,8443 --cycles 5 --cycle-pause 300 --random --delay 50-250 --rate 20 --threads 8 --advanced all
+           PhpVulnScanner.exe --merge D:\scansioni\sessioneA D:\scansioni\sessioneB --out D:\scansioni
+
+Correzione della v1.6: dalla v1.3 i servizi con un robots.txt con righe Disallow venivano analizzati solo a meta' (errore
+"Collection was modified" nel scan.log): niente SAPI, applicazione, livello 2 e WAF, verdetto "PHP non rilevato". Nella sessione
+notturna erano 18 servizi su 17 host, tra cui WordPress, Drupal e Matomo riconosciuti dalla v1.2. Corretto e isolato.
+
+Novita' della v1.4 (costruita sull'analisi dei sei cicli notturni sulla /20 con la v1.3.1):
+- sezione "Avanzate": dodici test aggiuntivi in sola lettura (HEAD contro GET e OPTIONS, Composer, pagine di stato, file di versione
+  delle applicazioni, sonda FastCGI 9000, comportamenti di PHP, livello 2 su ogni .php, User-Agent da browser, componenti,
+  esposizioni accessorie, PTR, Certificate Transparency), con costo in richieste indicato per ciascuno;
+- pulsante Pausa / Riprendi; pre-controllo TCP delle porte in parallelo; nomi con lo stesso contenuto del vhost predefinito
+  senza riga doppia; colonne Bersaglio (IP) e Nome (FQDN) separate; riquadri che contano servizi e host; barra orizzontale;
+- rami fuori supporto con numero puro (7.4.33, 8.0.30, 8.1.14...) = "Vulnerabile per versione"; SAPI: il banner prevale sulla sonda;
+- report compatto report_v1.4.html (solo cio' che ha qualcosa da dire) + report_completo_v1.4.html con la sezione "Per ciclo";
+- file host_attivi / host_http / nomi_scoperti (un IP per riga, unione di tutti i cicli), pronti per OpenVAS;
+- "Fondi sessioni...": fusione di sessioni sugli stessi range, anche di versioni diverse, con report delle differenze;
+- "Aggiorna dati...": firme webappanalyzer e inventario NCSC-NL aggiornati da GitHub; stato VEX per tutte le tecnologie.
+
+Uso responsabile: scansionare solo sistemi propri o con autorizzazione scritta del titolare.
+Lo scanner non contiene codice di sfruttamento: rileva versione dichiarata, barriere al perimetro e WAF/proxy;
+senza versione dichiarata il verdetto resta "Non determinabile" e la prova va cercata sull'host.
+
+Al primo avvio SmartScreen di Windows puo' chiedere conferma (eseguibile non firmato): "Ulteriori informazioni" > "Esegui comunque".
+Lingua: pulsante "Lingua" (italiano/inglese), applicata al riavvio.

@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PHP Vuln Scanner Guide</title>
+<style>
+:root{--bg:#ffffff;--fg:#1f2937;--muted:#6b7280;--line:#e5e7eb;--soft:#f6f7f9;--accent:#1d4ed8;--accent-soft:#eaf0fe;--ok:#15803d;--ok-soft:#ecfdf3;--warn:#b45309;--warn-soft:#fff8e6;--bad:#b91c1c;--bad-soft:#fef2f2;--code:#f3f4f6}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#111418;--fg:#e5e7eb;--muted:#9aa3af;--line:#2a2f37;--soft:#181c22;--accent:#7aa2ff;--accent-soft:#1a2340;--ok:#4ade80;--ok-soft:#10241a;--warn:#fbbf24;--warn-soft:#2a2210;--bad:#f87171;--bad-soft:#2a1416;--code:#1d2229}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 "Segoe UI",system-ui,-apple-system,sans-serif}
+.layout{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1200px;margin:0 auto}
+nav{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:22px 14px 30px 20px;border-right:1px solid var(--line);font-size:13.5px}
+nav .brand{font-weight:700;font-size:15px}nav .ver{color:var(--muted);font-size:12px;margin-bottom:14px}
+nav ol{list-style:none;padding:0;margin:0}nav a{display:block;padding:3px 8px;border-radius:5px;color:var(--fg);text-decoration:none}nav a:hover{background:var(--soft);color:var(--accent)}
+main{padding:28px 40px 60px;min-width:0}h1{font-size:28px;margin:0 0 6px}h2{font-size:21px;margin:40px 0 10px;padding-top:6px;border-top:1px solid var(--line)}h3{font-size:16.5px;margin:24px 0 6px}
+p{margin:8px 0}.lead{font-size:16.5px;color:var(--muted);max-width:820px}a{color:var(--accent)}
+code{font-family:Consolas,"Cascadia Mono",monospace;font-size:.9em;background:var(--code);padding:1px 5px;border-radius:4px}
+pre{background:var(--code);padding:10px 14px;border-radius:8px;overflow:auto;font-size:13px}
+table{border-collapse:collapse;width:100%;margin:10px 0 14px;font-size:14px}th,td{border-bottom:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}th{background:var(--soft)}
+.box{border-radius:8px;padding:10px 14px;margin:12px 0;border-left:4px solid}.why{background:var(--accent-soft);border-color:var(--accent)}.tip{background:var(--ok-soft);border-color:var(--ok)}.warn{background:var(--warn-soft);border-color:var(--warn)}.bad{background:var(--bad-soft);border-color:var(--bad)}
+.box>b:first-child{display:block;margin-bottom:2px}
+@media (max-width:900px){.layout{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}main{padding:20px 16px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+<div class="brand">PHP Vuln Scanner</div>
+<div class="ver">Guide v1.6</div>
+<ol>
+<li><a href="#scope">1. Purpose and responsible use</a></li>
+<li><a href="#quick">2. Quick start</a></li>
+<li><a href="#targets">3. Targets, ports, paths</a></li>
+<li><a href="#alive">4. Alive check</a></li>
+<li><a href="#levels">5. The tests: level 1 and level 2</a></li>
+<li><a href="#waf">6. WAF, CDN, proxies, load balancers</a></li>
+<li><a href="#verdicts">7. The verdicts and the priority</a></li>
+<li><a href="#names">8. Discovered names and PHP surface</a></li>
+<li><a href="#cycles">9. Cycles, random order, pacing, estimate</a></li>
+<li><a href="#advanced">10. Advanced: extra tests, pause, merge</a></li>
+<li><a href="#files">11. Log, session files, report</a></li>
+<li><a href="#table">12. Table, filters, sorting</a></li>
+<li><a href="#cli">13. Command line</a></li>
+<li><a href="#limits">14. Declared limits</a></li>
+<li><a href="#refs">15. References</a></li>
+</ol>
+</nav>
+<main>
+<h1>PHP Vuln Scanner</h1>
+<p class="lead">Portable Windows scanner that detects from outside, in a few seconds per target, the exposure to the two PHP runtime vulnerabilities published on 21 October 2026 (PHP2Shell, CVE-2026-109618 and CVE-2026-109619), and recognises upstream WAFs, CDNs, reverse proxies and load balancers.</p>
+
+<h2 id="scope">1. Purpose and responsible use</h2>
+<p>The two vulnerabilities are flaws of the PHP engine, not of an application: any exposed PHP site is affected, in every version from 5.4 onwards, until the fix is installed (8.2.35, 8.3.36, 8.4.27, 8.5.12 or a distribution backport). The scanner takes the exposure inventory of a perimeter: who advertises a vulnerable version, who is protected by an edge barrier, who advertises nothing and must be checked on the host.</p>
+<div class="bad"><b>Responsible use</b>Scan only your own systems or with the owner's written authorisation. The program names itself in the <code>User-Agent</code> and leaves traces in the target's logs. It contains and runs no exploit code, does not change the state of servers and sends no request that drives PHP into memory exhaustion.</div>
+
+<h2 id="quick">2. Quick start</h2>
+<ol>
+<li>Extract <code>PhpVulnScanner_v1.4_win-x64.zip</code> anywhere (a USB stick is fine) and run <code>PhpVulnScanner.exe</code>. No installation, no runtime to install.</li>
+<li>Type the targets in the <b>Targets</b> box, check the <b>ports</b> (default 443) and the <b>paths</b> (<code>/</code> and <code>/index.php</code>).</li>
+<li>Leave the <b>alive check</b>, <b>level 2</b> and <b>WAF detection</b> on, or adjust them (chapters 4, 5 and 6).</li>
+<li>Press <b>Start scan</b>. The table fills as results arrive; double-click a row to see every piece of evidence for that target.</li>
+<li>At the end the HTML report is generated in the session folder; <b>HTML report</b> opens it in the browser, <b>Export log…</b> saves the log, CSV or JSON wherever you want.</li>
+</ol>
+
+<h2 id="targets">3. Targets, ports, paths</h2>
+<table>
+<tr><th>Field</th><th>Format</th></tr>
+<tr><td>Targets</td><td>One per line or separated by comma, semicolon or space. IPv4/IPv6 addresses (<code>192.0.2.10</code>), CIDR networks (<code>192.0.2.0/24</code>, up to 65,536 addresses; for IPv4 networks up to /30 the network and broadcast addresses are skipped), ranges (<code>192.0.2.10-192.0.2.20</code> or <code>192.0.2.10-20</code>), names (<code>www.example.org</code>). Lines starting with <code>#</code> are comments; <code>https://</code>, paths and ports typed by mistake are stripped.</td></tr>
+<tr><td>TCP ports</td><td><code>443</code>, or <code>443,8443</code>, or <code>8000-8010</code>. Port 80 = HTTP; for other ports the scanner first performs a TLS handshake: HTTPS if it succeeds, HTTP otherwise. The handshake also yields the certificate (a hint for CDNs and WAFs).</td></tr>
+<tr><td>Paths</td><td>(since v1.4.2 in the <b>PHP detection</b> section) HTTP paths probed by level 1. The first <code>.php</code> answering 2xx/3xx becomes the path for level 2 tests (that is where PHP reads request bodies), otherwise the first one that answers.</td></tr>
+<tr><td>Host header (IP)</td><td>Name sent as <code>Host</code> and SNI when the target is an IP: reaches a virtual host behind an address. Empty = the IP itself.</td></tr>
+<tr><td>DNS resolver</td><td>Explicit resolver for names (e.g. <code>1.1.1.1</code>). Empty = system resolver. A public resolver avoids different outcomes between internal and external DNS (a rule born from a real case).</td></tr>
+</table>
+
+<h2 id="alive">4. Alive check</h2>
+<p>Before probing a target the scanner checks that it is alive, once per host, with the chosen methods in the order ICMP, TCP, UDP, stopping at the first confirmation.</p>
+<table>
+<tr><th>Method</th><th>What proves it</th><th>Note</th></tr>
+<tr><td>ICMP</td><td>An echo reply.</td><td>On Windows it uses the system API: no privileges needed. Many firewalls block it: the other methods then count.</td></tr>
+<tr><td>TCP</td><td>A successful connection <b>or an explicit refusal (RST)</b>: in both cases the host is up.</td><td>Usually the same ports as the scan.</td></tr>
+<tr><td>UDP</td><td>A reply with data <b>or an ICMP port unreachable</b>.</td><td>Several ports, same syntax as the TCP field (e.g. <code>53,123</code>). Silence proves nothing: the outcome stays "no response", never "down".</td></tr>
+</table>
+<p>The methods start together and the check stops at the first confirmation: a silent host costs the longest timeout, not the sum. The time of every phase (alive, dns, tls, http-l1, http-l2, waf) is reported in the log, in the target sheet and in the report, so every millisecond is accounted for. Note on Windows: a connection to a closed port (RST) costs about 2 s because the stack retries the SYN before declaring the refusal; the scanner pays it once (TLS handshake) and does not attempt HTTP on the same port.</p>
+<p><b>Per-host scheduling.</b> The unit of work is the host: resolution and alive check once, then the ports in sequence, and the threads work on different hosts. In v1.2 the ports of the same host were adjacent in the queue and the threads waited together for the same alive check: on a /20 with four ports 75% of the time was waiting, not traffic. The alive check time is charged to the host's first row; the others state "run once per host".</p>
+<p>The two boxes do different things: <b>Check that the target is alive</b> runs the alive check and records its outcome (Alive column, evidence, report); <b>Skip targets not confirmed alive</b> decides what to do with that outcome: on, an unconfirmed host gets "Not reachable" at once without attempting HTTP; off, the alive check is still recorded but the HTTP scan runs anyway (useful behind firewalls that block ICMP and only answer on the web port). With the first off, the second is disabled. The reason and the evidence list every configured method, in the configured order, with outcome and duration.</p>
+<p>An invalid value in the numeric or port fields is never ignored silently: the scanner lists it before starting and writes it to the log.</p>
+
+<h2 id="levels">5. The tests: level 1 and level 2</h2>
+<h3>Level 1, passive (always on)</h3>
+<p>GET requests on the configured paths, no body. The scanner reads what the server advertises by itself:</p>
+<ul>
+<li><code>X-Powered-By: PHP/x.y.z</code> (written by PHP with <code>expose_php=On</code>) and <code>Server: Apache/… PHP/x.y.z</code> (mod_php with <code>ServerTokens Full</code>);</li>
+<li>the <code>PHPSESSID</code> cookie, with a format check: an irregular session identifier is among the memory-disclosure indicators cited in public analyses;</li>
+<li>PHP error messages in the body (<code>display_errors</code> on);</li>
+<li>optionally, the revealing pages <code>phpinfo.php</code>, <code>info.php</code>, <code>php.php</code>, <code>test.php</code> (they only count when the body really is a phpinfo) and the PHP <b>easter egg</b> (<code>?=PHPE9568F34-…</code>), which reveals installations older than 5.5.</li>
+</ul>
+<p>The version read is compared with the first fixed releases of its branch: 8.2.35, 8.3.36, 8.4.27, 8.5.12. Branches 5.4 … 8.1 have no official release: Debian, Ubuntu, RHEL, Plesk, cPanel and Sury fix without changing the number, so the number alone does not say whether the backport is installed.</p>
+<h3>Passive context: SAPI, operating system, application</h3>
+<p>From the same responses, with no extra requests, the scanner infers the <b>SAPI</b> (<code>Server: Apache/… PHP/x</code> = mod_php; nginx, LiteSpeed or Caddy in front of PHP = FastCGI/FPM or LSAPI; Apache with PHP but no PHP in the banner = not distinguishable; IIS = php-cgi), the <b>operating system or distribution</b> advertised in the banner or in the package suffix (Debian, Ubuntu, Win64…), which guides the backport check, and the <b>application</b> (over 50 signatures on meta generator, paths, cookies and headers: WordPress, Joomla, Drupal, phpMyAdmin, Nextcloud, Laravel, Moodle, GLPI, TYPO3, PrestaShop, Magento, Roundcube, Zabbix…), linked to the page of the <a href="https://github.com/NCSC-NL/php2shell">NCSC-NL inventory</a> of products with a PHP dependency, where the per-product status is updated over time. The PHP advisory names mod_php as the highest-risk case (execution before application code): that is why the SAPI weighs on the priority.</p>
+<p><b>Application database.</b> Besides the 50 built-in signatures, which take precedence, the scanner reads from the <code>data\</code> folder the signatures of <a href="https://github.com/enthec/webappanalyzer">enthec/webappanalyzer</a> (Wappalyzer format, over 7,600 technologies: headers, cookies, meta, html, scripts, URL, certificate issuer; signals that need a browser are excluded) and the <a href="https://github.com/NCSC-NL/php2shell">NCSC-NL</a> inventory (751 packages with a VEX status per CVE). From them it derives the <b>application version</b> when declared, the list of <b>recognised technologies</b>, a PHP evidence for every technology that implies it (WooCommerce → WordPress → PHP) and the product's <b>NCSC-NL status per CVE</b> (affected, fixed in x.y, not affected, under investigation). The data version (<code>data\DATA-VERSION.txt</code>) appears in the report and in the log; without the folder the program works with the built-in signatures only. To refresh the data: <code>tools\build_appdb.py</code> in the sources.</p>
+<h3>Light mode</h3>
+<p>With <b>Light mode</b> level 1 uses HEAD instead of GET (GET only if HEAD answers 405 or 501). Less traffic on large perimeters, but without a body PHP errors, phpinfo and the application cannot be read.</p>
+<h3>Level 2, preconditions and barriers</h3>
+<p>Small, inert POST requests on the main path, compared with each other:</p>
+<ol>
+<li>a url-encoded POST (<code>a=1</code>) and a minimal multipart POST with the same field: if the multipart is rejected (403, 406, 418, 429, 501, 503 or connection closed) and the url-encoded one passes, there is a <b>multipart-specific barrier</b>, the recommended measure for those who cannot update;</li>
+<li>if the barrier is there, <b>eight Content-Type variants</b> (upper case, no space, charset before the boundary, quoted boundary, space before the semicolon, extra parameter, tab…): a block comparing the exact string <code>multipart/form-data</code> can be bypassed and is reported as "partially blocked";</li>
+<li>a multipart with the <code>PHP_SESSION_UPLOAD_PROGRESS</code> field sent <b>without a session cookie</b>: PHP writes nothing without a session, so the test only says whether a WAF filters the field name;</li>
+<li>a multipart of configurable size (default 256 KiB) to discover edge size limits (413).</li>
+</ol>
+<div class="why"><b>Why there is no exploitability test</b>No external scanner proves PHP2Shell exploitability. Tests that send large multipart bodies to drive PHP into memory exhaustion give the same answer on a fixed and on a vulnerable PHP (the fix repairs the cleanup after exhaustion, not the exhaustion itself: issue #1 of the Assetnote scanner), and on an unfixed worker the same request is the first half of the attack chain. By choice the scanner does not run them: where the version is not advertised the verdict stays "Undetermined" and the proof must be sought on the host (<code>php -v</code>, build date, package changelog, worker restart).</div>
+
+<h3>PHP "maybe": hints without proof (v1.5)</h3>
+<p>Between "PHP: yes" and "PHP: no" lies a band of signals that prove nothing alone but matter to whoever decides where to concentrate the checks. The scanner collects them <b>with no extra requests</b>, from the responses already received, and weighs them: strong 3, medium 2, weak 1; from 2 upwards the PHP column says <b>maybe</b>. Strong hints: the <code>Expires: Thu, 19 Nov 1981 08:52:00 GMT</code> header (the fixed date <code>session_start()</code> emits with the default cache limiter) and a cookie, whatever its name, whose value has the PHP session-id format (26 characters <code>0-9a-v</code>). Medium: cookies of PHP frameworks and CMSs (<code>laravel_session</code>, <code>ci_session</code>, Drupal's <code>SESS…</code>, <code>MoodleSession</code>, <code>fe_typo_user</code>, <code>OCSESSID</code>…), <code>X-Pingback</code>, <code>Link rel="https://api.w.org/"</code>, <code>X-Redirect-By</code>, <code>X-Drupal-Cache</code>, <code>X-Generator</code> headers, links or forms to <code>.php</code>, typical folders (<code>/wp-content/</code>, <code>/sites/default/files/</code>, <code>/typo3conf/</code>…), a handler treating the missing <code>.php</code> file differently from the others. Weak: <code>robots.txt</code> with <code>Disallow</code> on PHP paths, PHP's cache triplet without <code>ETag</code>/<code>Last-Modified</code>, a hosting panel (Plesk, cPanel, Webmin, CloudPanel), PHP-ecosystem technologies below the certainty threshold, certificate names mentioning wp, moodle, joomla. The weighted list is in test <code>L1-HINTS</code>, in the sheet and in the <b>Suspected PHP</b> section of the compact report; filter <code>php:maybe</code>.</p>
+<h3>Settings from the phpinfo page and CVE-2026-115560</h3>
+<p>When the scanner finds an exposed <code>phpinfo()</code> page (level 1 or extra tests), since v1.5 it reads the settings that matter for this family of vulnerabilities: <code>session.upload_progress.enabled</code>, <code>session.serialize_handler</code>, <code>session.save_handler</code>, <code>expose_php</code>, <code>memory_limit</code>, <code>post_max_size</code>, the <code>Server API</code> line (which settles the SAPI) and the version. Test <code>L1-PHPINFO-INI</code>: with <code>upload_progress</code> off the mitigation for CVE-2026-109619 <b>and</b> CVE-2026-115560 is in place; on, the host stays exposed to 115560 if the application switches the serializer at runtime. <b>CVE-2026-115560</b> (PHP informational advisory of 23 October 2026) has no fixed release: "Fixed by version" refers to the two CVEs of 21 October; 115560 needs <code>session.upload_progress</code> enabled plus an <code>ini_set('session.serialize_handler','php')</code> before <code>session_start()</code> with <code>php_binary</code> or <code>php_serialize</code> in the configuration: conditions invisible from outside, to be checked on the host (<code>php-fpm -i</code>, grep of the code). The mitigation is the one already recommended: <code>session.upload_progress.enabled=0</code>.</p>
+<h3>Host talkativeness (v1.5)</h3>
+<p>A 0-5 index of how much the host tells about itself unasked: PHP and web server versions in banners, operating system, phpinfo page (2), directory listing (2), Apache/nginx/FPM status pages (2), debug pages with stack traces (2), readable <code>composer.json</code>/<code>installed.json</code>, <code>.git</code>/<code>.svn</code>/<code>.env</code>/backups, application version, TRACE allowed, internal names in the certificate. Not a vulnerability: it is the "information gathering" part vulnerability scanners have always done, put on a scale you can bring to a meeting. Test <code>L1-VERBOSITY</code>, a field in the sheet, the <b>Talkativeness</b> section of the compact report sorted by index.</p>
+
+<h2 id="waf">6. WAF, CDN, proxies, load balancers</h2>
+<p>Every response is compared with a catalogue of signatures: headers (<code>Server</code>, <code>Via</code>, <code>cf-ray</code>, <code>X-Akamai-…</code>, <code>X-Iinfo</code>, <code>X-Sucuri-…</code>, <code>X-Azure-Ref</code>, <code>X-Served-By</code>…), affinity cookies (<code>BIGipServer</code>, <code>AWSALB</code>, <code>ARRAffinity</code>, <code>citrix_ns_id</code>, <code>SERVERID</code>…), block pages (only with an error status, so that an article about Cloudflare is not mistaken for Cloudflare) and the TLS certificate issuer. With the <b>behavioural test</b> the scanner adds a request with hostile-looking but inert parameters (compared with the normal request: a change of status or of the <code>Server</code> header means an active filter) and three repeated requests to observe differences between nodes (different <code>Server</code> headers or backend identifiers, different clocks, several addresses for the name).</p>
+<p><b>Cross-host correlation.</b> When the same behaviour (for instance "active filter: connection closed on hostile parameters") appears on most of the hosts with HTTP, with different web servers behind, the report says it once: it is almost certainly a single perimeter device (IPS or network WAF), not a protection of the individual hosts. In the reference /20 it concerned 80% of the hosts.</p>
+<p>Every detection carries category (WAF, CDN, reverse proxy, load balancer), name, confidence (high, medium, low) and evidence. The confidence is an estimate: <code>Server: nginx</code> in front of PHP-FPM is the norm, not a proxy, and is reported with low confidence.</p>
+
+<h2 id="verdicts">7. The verdicts and the priority</h2>
+<table>
+<tr><th>Verdict</th><th>Meaning</th><th>What to do</th></tr>
+<tr><td><b>Vulnerable by version</b></td><td>Advertised version of a supported branch (8.2 … 8.5) earlier than the fix.</td><td>Update and restart all workers. If the number carries a package suffix, check the changelog: it may be a backport.</td></tr>
+<tr><td><b>Likely vulnerable</b></td><td>Advertised version of an end-of-life branch (5.4 … 8.1) <b>with a distribution suffix</b> (<code>7.4.3-4ubuntu2.29</code>, <code>5.4.45-0+deb7u14</code>): vulnerable by version, backport cannot be excluded.</td><td>Check on the host; update or apply backports (Sury, rebuilt images, source).</td></tr>
+<tr><td colspan="3"><b>Pure number on an end-of-life branch</b> (<code>7.4.33</code>, <code>8.0.30</code>, <code>8.1.14</code>, no suffix): since v1.4 it is "Vulnerable by version", because a number without suffix comes from an upstream build (compiled, official image) and no distributor can have backported: the version says it all. The rule can be switched off in Advanced.</td></tr>
+<tr><td><b>Mitigated at the edge</b></td><td>Multipart requests do not reach PHP (complete barrier on every variant).</td><td>A stopgap: the update stays necessary; make sure the origin accepts traffic from the edge only.</td></tr>
+<tr><td><b>Undetermined</b></td><td>PHP detected but no version advertised.</td><td>Check on the host. The report shows whether multipart reaches PHP.</td></tr>
+<tr><td><b>Fixed by version</b></td><td>Advertised version equal to or later than the fix.</td><td>Check that every worker was restarted; look at a bypassable multipart barrier if reported.</td></tr>
+<tr><td><b>PHP not detected</b></td><td>Answers HTTP but without PHP hints.</td><td>If a proxy strips headers, PHP may still be there: check on the host.</td></tr>
+<tr><td><b>Not reachable</b></td><td>Alive check unconfirmed or no HTTP response.</td><td>Check firewall and port; retry without "skip targets not alive".</td></tr>
+</table>
+<p>The verdict always carries its reason with the evidence; in the target sheet (double-click, or the report) every test has outcome, detail, request sent and response received.</p>
+<p>The <b>priority</b> is a derived remediation ordering, not a new verdict: <b>Critical</b> = vulnerable or likely vulnerable with mod_php and multipart reaching PHP; <b>High</b> = vulnerable with another or unknown SAPI; <b>Medium</b> = mitigated at the edge with a vulnerable version, or undetermined with multipart accepted; <b>Low</b> = undetermined behind a barrier, fixed with a bypassable barrier; <b>None</b> = fixed, no PHP, not reachable.</p>
+
+<h2 id="names">8. Discovered names and PHP surface</h2>
+<h3>Discovered names and second pass</h3>
+<p>Scanning an IP address only shows the <b>default virtual host</b>: in a real /20 more than a third of the hosts with HTTP answered with a redirect or with the web server's courtesy page, and the real sites lived behind names. From every response the scanner collects the valid DNS names found in the TLS certificate (CN and SAN) and in <code>Location</code> headers ("glued" redirects such as <code>https://www.example.orgindex.php</code>, produced by a <code>Redirect</code> directive without trailing slash, are discarded). The names appear in the target sheet, in the report and in <code>results.json</code>: on their own they are already an inventory of the perimeter.</p>
+<p>With <b>Rescan discovered names</b> every name (up to the per-host maximum) is probed again <b>on the same IP and the same ports</b> with <code>Host</code> and SNI equal to the name: no DNS resolution, no new target. The additional rows are called <code>name @ IP</code> and follow their address in the sort order. A wildcard <code>*.example.org</code> is not rescanned (it is not a name).</p>
+<p><b>Name folding (v1.4 and v1.5).</b> Two rules avoid rows that say nothing new. The first (v1.4): a name returning the <b>same content</b> as the default vhost gets no row and goes into the Name column as "(= default vhost)". The second (v1.5): a name returning different content but the <b>same outcome</b> (verdict, version, SAPI, application and version, barrier, WAF, priority, PHP presence) as the IP row, or as another name row of the same IP and port, gets no row: the name goes into "(= same outcome)". This is the load-balanced farm with a shared certificate: ten names on five IPs produced fifty identical "PHP-FPM, no version, Undetermined" rows. A name revealing something different (a WordPress with a version, a different PHP, a different barrier) keeps its row. Folded observations all stay in <code>results.jsonl</code> and in the full report; in the <b>compact report every row lists every name</b> of the IP and port, uncut, because names are what you need to find the people who must act; <code>nomi_scoperti_vX.Y.txt</code> maps name → IP. Both rules can be switched off in the PHP detection section (<code>--no-fold-names</code>, <code>--no-fold-outcome</code> on the command line).</p>
+<h3>PHP surface</h3>
+<p>The configured paths are not enough to tell whether PHP is there: a site may serve its home page from a static cache and keep PHP only behind <code>/login.php</code>. With <b>PHP surface</b> level 1 adds, read-only:</p>
+<ol>
+<li>the <b>missing-file probe</b>, <code>GET /&lt;random&gt;.php</code>: <code>404 File not found.</code> is the answer of PHP-FPM reached through Apache or nginx, <code>No input file specified.</code> that of php-cgi, a 404 page with <code>X-Powered-By: PHP</code> that of mod_php. It is a PHP signature independent of banner and application, and it also settles the SAPI. A 200 or a redirect on any path ("catch-all") is recognised and the following steps take it into account;</li>
+<li>about forty <b>common entry points</b> (<code>login.php</code>, <code>wp-login.php</code>, <code>xmlrpc.php</code>, <code>administrator/</code>, <code>phpmyadmin/</code>, <code>adminer.php</code>, <code>typo3/</code>, <code>glpi/</code>, <code>roundcube/</code>, <code>webmail/</code>, <code>robots.txt</code>, <code>sitemap.xml</code>…) with HEAD requests only: 200, 301, 302, 401 and 403 mean "exists";</li>
+<li>the <code>.php</code> files <b>linked</b> from the pages already downloaded (links, form actions, src), one level, on the same host.</li>
+</ol>
+<p>The list appears in the <b>Surface</b> column, in the sheet and in the report. Level 2 uses the best discovered <code>.php</code> when the configured paths offer none that answers: the barrier is then measured where PHP really reads the body. Cost: 40 to 60 HEAD requests per answering host, diluted by the random delay of chapter 9.</p>
+
+<h2 id="cycles">9. Cycles, random order, pacing, estimate</h2>
+<p><b>Cycles.</b> The same scan can be repeated N times with a pause between cycles, to watch a perimeter over time (hosts coming up, updates applied, barriers changing). Every log line, the status bar and the Completed tile say "cycle i of N"; <b>Stop</b> stops everything, even during the pause, and the completed results stay on disk.</p>
+<p><b>Cycle outcome.</b> Two ways:</p>
+<ul>
+<li><b>One session per cycle</b>: folders <code>…_c1of4</code>, <code>…_c2of4</code>, …, each with its own files and report; the Cycle column says which one each row belongs to.</li>
+<li><b>Consolidation</b> (default): a single session where, for every host/port (and name) pair, <b>the most informative result wins</b>: a declared version beats "undetermined", a reached host beats an unreached one, an observed barrier beats an untested one; ties go to the most recent cycle. The <b>cycle history</b> stays in the result (<code>cycle 1: Not reachable · cycle 2: Likely vulnerable (7.4.33)</code>): the Cycle column shows <code>Δ 2/2</code> when the verdict changed between cycles, the report has a "Cycle history" section and counts the changes. Every observation, the losing ones too, stays in <code>results.jsonl</code>.</li>
+</ul>
+<p><b>Random order and pacing.</b> With <b>Random order</b> the hosts (and each host's ports) are visited in random order; the <b>random delay</b> between requests (min-max ms) and the <b>requests-per-second cap</b> dilute the traffic. They exist so that IDS and IPS do not trip even when the source address is whitelisted: scanning a /20 still produces thousands of connections and level 2 sends up to twelve consecutive requests to the same host. The order stays per host: the alive check runs once per host.</p>
+<p><b>Estimate.</b> The status bar shows <code>pairs/s · cycle end hh:mm (+duration) · loop end hh:mm (+duration)</code>. The rate is that of the <b>last 5 minutes</b> (moving average updated every 2 s), not the average since the start: a network alternates slow zones of silent hosts with fast zones of immediate RSTs. Under one minute of data the estimate says "computing". The loop end is the projected current cycle plus the remaining cycles times the duration of the last completed cycle (or the projection) plus the pauses. With sequential order the estimate swings when the subnet changes; with random order it is stable. Every 5 minutes the log writes a "Progress" line with the current estimate: at the end you can measure how wrong it was.</p>
+
+<h2 id="advanced">10. Advanced: extra tests, pause, session merge</h2>
+<p>Since v1.4.2 everything about the PHP layer sits in one collapsible section, <b>PHP detection</b>: the paths, levels 1 and 2 with the probe multipart, the light mode, the surface, discovered names with the second pass and the folding of identical names, the pure-number rule and, at the bottom, the <b>extra tests</b>, one checkbox each, with the cost in requests per service in brackets. WAF, port pre-check, debug and report options sit in the <b>WAF, engine and debug</b> section. All of them are read-only (HEAD, GET, OPTIONS, one FastCGI management record); none sends a body, none downloads confidential content: exposures are recorded as existing, not fetched. <b>None</b>, <b>Defaults</b> (all but the browser User-Agent, Certificate Transparency and level 2 on every .php) and <b>Maximum detection</b> (every extra test plus level 2, surface, names with second pass, revealing pages and easter egg; turns the light mode off) are the shortcuts; the choices go into <code>session.json</code> and the report, and on the command line they are passed with <code>--advanced</code>.</p>
+<table>
+<tr><th>Test</th><th>What it looks for</th></tr>
+<tr><td>HEAD vs GET, OPTIONS</td><td>A HEAD next to the GET on the main path: differences in status, <code>Server</code>, <code>X-Powered-By</code>, cookies or length reveal a cache in front of the origin, a filter that only inspects GETs, a non-standard handler; the <code>Allow</code> of OPTIONS lists the methods (TRACE enabled is an exposure).</td></tr>
+<tr><td>Composer</td><td><code>composer.json</code> declares the <code>"php"</code> constraint: a certain minimum version even without a banner; <code>vendor/autoload.php</code> confirms a Composer application; <code>vendor/composer/installed.json</code> lists libraries and versions (and should not be public).</td></tr>
+<tr><td>Status pages</td><td>Apache <code>/server-info</code> lists the loaded modules (<code>mod_php</code> or <code>mod_proxy_fcgi</code>: SAPI for sure), <code>/server-status</code> version and vhosts, <code>/nginx_status</code>, the PHP-FPM status (<code>/status</code>, <code>/fpm-status</code>). Only pages in the expected format count, not any 200.</td></tr>
+<tr><td>Application version files</td><td>WordPress <code>readme.html</code>, <code>joomla.xml</code>, Drupal <code>CHANGELOG.txt</code>, Moodle <code>version.php</code>, debug pages of Symfony, Laravel, Yii. The version is compared with the "fixed in" of the NCSC-NL inventory.</td></tr>
+<tr><td>FastCGI 9000</td><td>One <code>FCGI_GET_VALUES</code> record (management, harmless) on port 9000 of the host: an answer means php-fpm is exposed on TCP to the internet, a finding on its own.</td></tr>
+<tr><td>PHP behaviours</td><td><code>/index.php/something</code> served as <code>/index.php</code> (PATH_INFO), the answer of <code>xmlrpc.php</code>, exposed sources (<code>.phps</code>, <code>.php~</code>, <code>.bak</code>: existence only), more revealing pages.</td></tr>
+<tr><td>Level 2 on every .php</td><td>The multipart barrier measured on every discovered <code>.php</code> (up to a maximum), not only on the main one: a WAF rule may be per path.</td></tr>
+<tr><td>Browser User-Agent</td><td>A second pass on the main path with a browser-like User-Agent that still contains the tool name: some WAFs and CDNs serve a different page to anything called "scanner". Off by default.</td></tr>
+<tr><td>Components</td><td>From the pages already downloaded, no requests: WordPress plugins and themes, Joomla components, Drupal modules, TYPO3 extensions, with version when <code>?ver=</code> is there. For whoever has to patch, it is the work list.</td></tr>
+<tr><td>Accessory exposures</td><td>HEAD only on <code>.env</code>, <code>.git</code>, <code>.svn</code>, common backups and dumps, <code>.htpasswd</code>: existence only. On servers answering 200 to any path the test is skipped and says so.</td></tr>
+<tr><td>More names</td><td>PTR of every alive host and the <code>ServerName</code> Apache writes in its error pages; optionally Certificate Transparency (crt.sh) for the discovered domains: no traffic to the targets, but requests to an external service. Off by default.</td></tr>
+</table>
+<p>In the same section: <b>names with the same content</b> (a name that returns exactly the default vhost's response does not get a row: it goes into the Name column of the IP row; in the reference /20 it was 75% of the name rows), <b>TCP port pre-check</b> (all ports in parallel, TLS and HTTP only where the port answers: closed ports of alive hosts cost 22% of the time) and the <b>pure number</b> rule (chapter 7).</p>
+<p><b>Pause.</b> The button next to Stop halts the scan before the next host and the next request; in-flight requests finish and their results stay; paused time does not enter the estimate; a second click resumes. While paused the session folder and the report remain usable.</p>
+<p><b>Merge sessions…</b> Pick two or more session folders on the same ranges (hold Ctrl in the picker), even from different versions: the program checks the overlap of the targets and produces a new session <code>…_phpscan_fusione</code> where, for every service, the most informative result wins, with the history labelled by session, date and program version ("23/10 22:47 v1.2: Not reachable · 24/10 02:35 v1.3.1: Likely vulnerable"). The report has a <b>Differences</b> section: hosts alive in one session only, changed verdicts, information present in one and absent in the other. The original sessions stay untouched; the merge is a session like any other. From the command line: <code>--merge folder1 folder2 --out folder</code>.</p>
+<p><b>Update data…</b> Downloads from GitHub the webappanalyzer signatures and the NCSC-NL inventory and converts them into the <code>data\</code> folder; the current files are replaced only when the download succeeds.</p>
+
+<h3>New in v1.6: certificates, cache, inventory, session id, budget</h3>
+<p><b>TLS certificate status.</b> The certificate was already read but not judged. Every HTTPS service now gets a status (<code>TLS-CERT</code>, <b>Certificate</b> column, sheet and <b>Certificates</b> section of the compact report): <i>valid</i>, or the issues separated by semicolons: expired on …, not yet valid, expires in N days (within 30), self-signed, untrusted chain (checked offline against the root store of the scanning PC), name mismatch (only when the target is a name), RSA key below 2048 bits, SHA-1/MD5 signature. No effect on the PHP2Shell verdict: it says who must act and where.</p>
+<p><b>Cache or intermediary in front of the origin.</b> From <code>Via</code>, <code>Age</code>, <code>X-Cache</code>, <code>CF-Cache-Status</code>, <code>X-Varnish</code>, <code>X-Served-By</code>: test <code>L1-CACHE</code>, a row in the sheet. It explains why <code>X-Powered-By</code> and <code>Set-Cookie</code> may be missing and why HEAD and GET differ.</p>
+<p><b>PHP versions declared in the body</b> (outside phpinfo, e.g. a page printing "PHP/7.4.33"): recorded as a weight-2 hint and in the sheet, never in the verdict: text, not evidence.</p>
+<p><b>Inventory.</b> A CSV or JSON file (one row per system: <code>target</code>/<code>ip</code>/<code>name</code>/<code>url</code>, <code>php_version</code>, <code>environment</code>, <code>owner</code>, <code>notes</code>, <code>application</code>; separator <code>,</code> <code>;</code> or tab; <code>#</code> lines ignored; CIDR networks and ranges accepted as target) given in the <b>Inventory</b> field or with <code>--inventory</code>. At the end of the scan the results are reconciled: the <b>owner</b> appears in its column and next to every service in the report; the <b>Inventory</b> section of the compact report lists <i>different versions</i> (declared against observed), <i>declared but not observed</i> (off, filtered, decommissioned or outside the list), <i>observed but not inventoried</i> (to be recorded or switched off) and <i>PHP declared but not observed</i>. Details in <code>inventario_vX.Y.json</code>. Reconciliation sends no requests: it works on the results.</p>
+<p><b>Session-id adoption</b> (extra test, off by default): one GET to the main path with a fresh random <code>PHPSESSID</code>; if the server adopts it instead of issuing its own, <code>session.use_strict_mode</code> is off (test <code>ADV-SESSIONID</code>). Runs only when the main path starts a session; a visit like any other, no user sessions, no login.</p>
+<p><b>Per-service budget</b> (default 120 s, 0 = none): beyond it the remaining optional probes (surface entry points, path-based extra tests) are skipped and recorded in the <code>BUDGET</code> test and in the sheet; level 1, level 2 and WAF are never skipped. In the reference /22 a dead backend answering 502 in one second cost 170 s per service.</p>
+<p><b>Dead backend (catch-all 5xx).</b> When the main page, <code>index.php</code> and the missing file all return the same 502/503/504, path probes are pointless: the surface stops (<code>L1-SURFACE-PROBE</code> says so) and the path-based extra tests are skipped (<code>ADV-SKIP</code>); HEAD/OPTIONS, components and host-level tests remain.</p>
+<p><b>Session file writing.</b> Up to v1.5 the periodic rewrite of <code>results.json</code> blocked every thread for its duration (with debug on a /20 it is hundreds of MB: in the reference /20 the 16 threads were busy on average 4-5). It now runs outside the lock, streaming, on a separate thread; <code>results.jsonl</code> is still written line by line. The load balancer "inferred from the Date header" now compares the gap between the node clock and the receive time, not the dates of responses taken at different moments.</p>
+
+<h2 id="files">11. Log, session files, report</h2>
+<p>Every scan creates a folder <code>Sessioni\YYYYMMDD_hhmmss_phpscan[_label]</code> next to the program (or in <code>Documents\PhpVulnScanner\Sessioni</code> when the folder is read-only); with one session per cycle the name also carries <code>_c1of4</code>, <code>_c2of4</code>, …:</p>
+<table>
+<tr><th>File</th><th>Content</th></tr>
+<tr><td><code>scan.log</code></td><td>full log, line by line, written during the scan</td></tr>
+<tr><td><code>results.json</code></td><td>all results with tests, evidence and responses, rewritten at most every 30 s and at the end; reloaded with <b>Open session…</b></td></tr>
+<tr><td><code>results.jsonl</code></td><td>one JSON line per observation, written immediately: complete even if the program is killed; with consolidation it holds every cycle, not only the winner</td></tr>
+<tr><td><code>samples.json</code></td><td>debug mode only: one <b>anonymised</b> sample (IP → 198.51.100.x, names → example.org, domain labels → orgN, e-mail → utenteN@example.org, in bodies and in the Server banner too) for every distinct combination of Server / X-Powered-By / cookie / application, to share for analysis without exposing the perimeter. Bodies may still contain names of organisations or people not tied to a discovered name: check before sharing</td></tr>
+<tr><td><code>results.csv</code></td><td>one row per target/port, stable headers and values (never translated), for Excel, Power BI or a SIEM</td></tr>
+<tr><td><code>tests.csv</code></td><td>one row per single test run</td></tr>
+<tr><td><code>session.json</code></td><td>configuration, program version, final status</td></tr>
+<tr><td><code>report_v1.4.html</code></td><td><b>compact report</b>, the one the button opens: summary (services and hosts per verdict, alive hosts, perimeter filter), "To take into account" (vulnerable, likely vulnerable, mitigated, undetermined, exposures, recognised applications), "Alive hosts" one row per IP with names, ports, application and best verdict. No unreachable rows, no raw responses: readable even on a /20.</td></tr>
+<tr><td><code>report_completo_v1.4.html</code></td><td>full self-contained report: every row, per-service sheet with all the evidence and raw headers, method and limits; in consolidated loops the "Per cycle" section. Never overwritten: on regeneration <code>_2</code>, <code>_3</code>, …</td></tr>
+<tr><td><code>host_attivi_v1.4.txt</code></td><td>one IP per line, sorted, only the hosts confirmed alive: ready for import into OpenVAS or another scanner; with cycles it is the union of the whole loop, updated after every cycle. Next to it <code>host_http_v1.4.txt</code> (hosts that answered HTTP) and <code>nomi_scoperti_v1.4.txt</code> (discovered names).</td></tr>
+</table>
+<p><b>Export log…</b> saves, wherever you want, the on-screen log (TXT), the results (CSV or JSON) or the tests (CSV), with the version in the file name. The CSV format is selectable: Italian Excel (<code>;</code> and decimal comma) or standard.</p>
+<p>Portable program: settings (<code>PhpVulnScanner.settings.json</code>), language, guide and sessions live next to the executable. The language is changed with <b>🌐 Language</b> (Italian and English; other languages by adding a <code>lang\&lt;code&gt;.json</code> file).</p>
+
+<h2 id="table">12. Table, filters, sorting</h2>
+<ul>
+<li>The <b>summary tiles</b> are filters: one click shows only the rows of that verdict, a second click brings all of them back. <b>Alive hosts</b> counts the distinct hosts confirmed by the alive check (not host×port pairs: on a /20 with four ports the same machine appears four times) and a click shows their rows; with the alive check off it counts the hosts with at least one TCP, TLS or HTTP answer. The same number is in the report and in the closing line of the log.</li>
+<li>Columns: <b>Target</b> carries only the IP address connected to; <b>Name</b> the FQDN (discovered name of the second pass, or the name entered when the target is an FQDN; "= default vhost" when a name returned the same content as the IP); <b>Surface</b> (number of discovered PHP paths, list in the tooltip and in the sheet); <b>Cycle</b> (cycle of the observation; with consolidation <code>Δ</code> marks a verdict that changed between cycles).</li>
+<li>Since v1.5 the <b>PHP</b> column has three values: <b>yes</b> (proof: banner, PHPSESSID cookie, PHP errors, missing-file probe, an application that implies PHP), <b>maybe</b> (no proof but weighted hints, see chapter 5) and <b>no</b>. "Maybe" never changes the verdict, which stays "PHP not detected": it is an inventory of hints to decide where to look next. The "PHP not detected" tile says how many rows carry hints.</li>
+<li>Every row is a <b>service</b> (IP + port + name): a different PHP may answer behind a different port. The verdict tiles count services and, below, the distinct <b>hosts</b> ("on 9 hosts"); "Alive hosts" counts IPs.</li>
+<li>The <b>filter bar</b> above the table combines the free text with four <b>multi-select</b> drop-downs (verdict, priority, alive, barrier): ticked entries inside one drop-down are ORed, drop-downs and text are ANDed. Clicking a verdict tile adds or removes that verdict in the drop-down; the counter says how many rows are shown; <b>Clear filters</b> resets everything.</li>
+<li><b>Free-text syntax</b> (since v1.5). A single word is a substring search over every field (IP, name, port, version, SAPI, application, WAF, reason, surface, technologies, exposures, OS). In addition:
+<table>
+<tr><th>Write</th><th>Meaning</th></tr>
+<tr><td><code>7.1.4 apache</code></td><td>several terms = AND</td></tr>
+<tr><td><code>wordpress|drupal</code></td><td><code>|</code> = OR (binds tighter than AND: <code>fpm wordpress|drupal</code> = fpm AND (wordpress OR drupal))</td></tr>
+<tr><td><code>-nginx</code></td><td>leading <code>-</code> = exclude</td></tr>
+<tr><td><code>reason:"weak hints"</code></td><td>quotes for text with spaces</td></tr>
+<tr><td><code>field:value</code></td><td>restrict to one field: <code>ip</code>, <code>name</code>, <code>port</code>, <code>ver</code>, <code>sapi</code>, <code>app</code>, <code>waf</code>, <code>reason</code>, <code>surface</code>, <code>verdict</code>, <code>priority</code>, <code>alive</code>, <code>barrier</code>, <code>php</code> (<code>yes</code>/<code>maybe</code>/<code>no</code>), <code>tech</code>, <code>exposure</code>, <code>os</code>, <code>cycle</code> (Italian names work too)</td></tr>
+<tr><td><code>ver:7.1.*</code>, <code>ip:192.0.2.21?.*</code>, <code>app:word*</code></td><td>wildcards: <code>*</code> any sequence, <code>?</code> one character; a term with wildcards is matched against the whole field (anchored), without wildcards it stays a substring</td></tr>
+<tr><td><code>ip:192.0.2.0/24</code>, <code>ip:192.0.2.10-50</code></td><td>CIDR network or range, same syntax as the targets</td></tr>
+</table>
+A malformed filter blocks nothing: the box turns red and the tooltip explains the error. Full example: <code>verdict:vuln* | php:maybe -waf:f5 ip:192.0.2.0/23</code>.</li>
+<li>Click a column header to sort: the Target column follows the <b>IP numbering</b> (1, 2, 10, 100, not alphabetical order), with names at the end; port, priority, duration and start by real value. The same order applies to the report and to the CSV/JSON files.</li>
+<li>The first column, <b>Start</b>, is the start time of the target's test in ISO format with milliseconds, <code>2026-10-22 16:07:12,243</code>; the log shows local and UTC time on every line, <code>2026-10-22 16:07:12,243 (14:07:12,243Z)</code>.</li>
+</ul>
+
+<h2 id="cli">13. Command line</h2>
+<p>The same executable runs without a window, for scripts and scheduled tasks:</p>
+<pre>PhpVulnScanner.exe --scan targets.txt --ports 443,8443 --out D:\scans --label customer --quiet
+PhpVulnScanner.exe --scan 192.0.2.10,www.example.org --no-alive --light --json result.json
+PhpVulnScanner.exe --scan 192.0.2.0/22 --cycles 4 --cycle-pause 300 --random --delay 50-250 --rate 20 --threads 8
+PhpVulnScanner.exe --help</pre>
+<p>Options: <code>--ports</code>, <code>--paths</code>, <code>--out</code>, <code>--label</code>, <code>--no-alive</code>, <code>--no-icmp</code>, <code>--alive-tcp</code>, <code>--alive-udp</code>, <code>--alive-timeout</code>, <code>--scan-not-alive</code>, <code>--no-level2</code>, <code>--no-waf</code>, <code>--light</code>, <code>--threads</code>, <code>--connect-timeout</code>, <code>--read-timeout</code>, <code>--resolver</code>, <code>--host-header</code>, <code>--json</code>, <code>--csv standard|excel</code>, <code>--quiet</code>; since v1.3 also <code>--cycles N</code>, <code>--cycle-pause s</code>, <code>--consolidate</code> (default) or <code>--separate-sessions</code>, <code>--random</code>, <code>--delay min-max</code> (ms), <code>--rate n</code> (requests/s), <code>--no-surface</code>, <code>--no-names</code>, <code>--no-rescan-names</code>, <code>--max-names n</code>, <code>--debug</code>, <code>--report-unreachable</code>; since v1.4 <code>--advanced all|none|keys</code> (keys: <code>headvsget, composer, status, appversion, fastcgi, behaviours, level2all, browserua, components, exposures, ptr, ct</code>), <code>--no-fold-names</code>, <code>--no-fold-outcome</code> (v1.5), <code>--inventory &lt;file&gt;</code>, <code>--budget &lt;s&gt;</code> (v1.6), <code>--no-precheck</code>, <code>--no-pure-version</code>, <code>--merge folder1 folder2 … --out folder</code> (session merge, no scan). Session folder and report are the same as in the interface; with separate sessions, one report per cycle.</p>
+<p>Exit codes: <b>0</b> none vulnerable; <b>1</b> at least one "vulnerable by version" or "likely vulnerable"; <b>2</b> invalid arguments; <b>3</b> "undetermined" only; <b>4</b> scan stopped or failed. In PowerShell: <code>&amp; .\PhpVulnScanner.exe --scan ... ; $LASTEXITCODE</code>.</p>
+
+<h2 id="limits">14. Declared limits</h2>
+<ul>
+<li><b>Invisible backports.</b> The version number does not reveal distribution backports: "Likely vulnerable" and the package suffix must be checked on the host.</li>
+<li><b>No proof of exploitability.</b> See chapter 5: the verdict stops at the version and the barriers.</li>
+<li><b>WAF and CDN instead of the origin.</b> Headers may be rewritten and the multipart block may only apply to traffic through the edge: the origin stays exposed if reachable directly (TLS certificates and historical DNS reveal it).</li>
+<li><b>UDP.</b> Silence does not mean the host is down.</li>
+<li><b>One path.</b> Level 2 tests concern the main path (configured or discovered): other paths may have different rules.</li>
+<li><b>Discovered names.</b> Only the names the server itself reveals (certificate, redirects): virtual hosts that appear nowhere stay invisible; passive DNS or inventories are needed.</li>
+<li><b>Estimate.</b> It is a projection of the recent rate: a zone of silent hosts or a subnet change can move it a lot.</li>
+<li><b>SAPI, operating system and application</b> are hints from the banners: a proxy that rewrites headers hides or distorts them; the priority inherits that uncertainty.</li>
+</ul>
+
+<h2 id="refs">15. References</h2>
+<ul>
+<li>PHP advisories GHSA-w8hw-w9fx-j79w (CVE-2026-109618) and GHSA-6wmf-4rv5-p3rp (CVE-2026-109619), 21/10/2026</li>
+<li>CERT-EU Security Advisory 2026-018</li>
+<li>Datadog Security Labs, Wiz: PHP2Shell technical analyses</li>
+<li>Assetnote php2shell-scanner, issue #1: false positive on fixed versions</li>
+<li>Blue-B/php2shell-guard: host check and proxy rule tests</li>
+<li>"PHP2Shell: Detection Opportunities" (Blevene gist): network and host indicators</li>
+<li>NCSC-NL/php2shell: operational information and inventory of products with a PHP dependency (SPDX 3 + VEX, bundled in <code>data\</code>)</li>
+<li>enthec/webappanalyzer: web technology signatures in Wappalyzer format (GPL-3.0, bundled in <code>data\</code>)</li>
+</ul>
+<p style="color:var(--muted);font-size:13px;margin-top:30px">PHP Vuln Scanner v1.4 · DGR – ICT GRC Consulting · MIT License · developed with Claude (Anthropic)</p>
+</main>
+</div>
+</body>
+</html>

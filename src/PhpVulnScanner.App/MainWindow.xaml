@@ -1,0 +1,376 @@
+<Window x:Class="PhpVulnScanner.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:PhpVulnScanner.App"
+        Title="PHP Vuln Scanner" Height="800" Width="1480" MinHeight="640" MinWidth="1100"
+        FontFamily="Segoe UI" FontSize="12.5"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource AppBg}"
+        Icon="app.ico">
+    <Window.CommandBindings>
+        <CommandBinding Command="ApplicationCommands.Help" Executed="Help_Executed"/>
+    </Window.CommandBindings>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ============ Barra comandi ============ -->
+        <Border Grid.Row="0" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="12,8">
+            <DockPanel LastChildFill="True">
+                <TextBlock x:Name="TxtState" DockPanel.Dock="Right" Text="Pronto" VerticalAlignment="Center" Margin="12,0,0,0"
+                           Foreground="{StaticResource Muted}" FontWeight="SemiBold"/>
+                <WrapPanel Orientation="Horizontal">
+                    <TextBlock Text="PHP Vuln Scanner" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="TxtVersion" Text="v1.0" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,2,18,0"/>
+                    <Button x:Name="BtnStart" Style="{StaticResource BtnPrimary}" l:Loc.Text="▶  Avvia scansione" Click="BtnStart_Click" MinWidth="130"/>
+                    <Button x:Name="BtnPause" l:Loc.Text="❚❚  Pausa" Click="BtnPause_Click" IsEnabled="False" MinWidth="90"
+                            l:Loc.Tip="Ferma la scansione prima del prossimo host e della prossima richiesta (quelle in volo finiscono); il tempo in pausa non entra nella stima. Secondo clic: riprende"/>
+                    <Button x:Name="BtnStop" Style="{StaticResource BtnDanger}" l:Loc.Text="■  Interrompi" Click="BtnStop_Click" IsEnabled="False" MinWidth="100"/>
+                    <Rectangle Width="1" Fill="{StaticResource Line}" Margin="6,2,12,2"/>
+                    <Button x:Name="BtnOpenFolder" l:Loc.Text="Cartella sessione" Click="BtnOpenFolder_Click" IsEnabled="False"
+                            l:Loc.Tip="Apre la cartella con scan.log, results.csv, results.json, tests.csv e il report"/>
+                    <Button x:Name="BtnReport" l:Loc.Text="Report HTML" Click="BtnReport_Click" IsEnabled="False"
+                            l:Loc.Tip="Genera (o rigenera) il report HTML della scansione corrente e lo apre nel browser"/>
+                    <Button x:Name="BtnExportLog" l:Loc.Text="Esporta log…" Click="BtnExportLog_Click" IsEnabled="False"
+                            l:Loc.Tip="Salva il log esteso come TXT, oppure i risultati come CSV o JSON"/>
+                    <Button x:Name="BtnOpenSession" l:Loc.Text="Apri sessione…" Click="BtnOpenSession_Click"
+                            l:Loc.Tip="Ricarica i risultati di una sessione salvata (results.json) per consultarli o rigenerare il report"/>
+                    <Button x:Name="BtnMerge" l:Loc.Text="Fondi sessioni…" Click="BtnMerge_Click"
+                            l:Loc.Tip="Fonde due o più sessioni sugli stessi range (anche di versioni diverse) in una nuova sessione: vince il risultato più informativo, con la storia per sessione e il report delle differenze"/>
+                    <Button x:Name="BtnUpdateData" l:Loc.Text="Aggiorna dati…" Click="BtnUpdateData_Click"
+                            l:Loc.Tip="Scarica da GitHub le firme delle tecnologie (webappanalyzer) e l'inventario NCSC-NL aggiornati nella cartella data\ (richiede accesso a internet)"/>
+                    <Rectangle Width="1" Fill="{StaticResource Line}" Margin="6,2,12,2"/>
+                    <Button x:Name="BtnLanguage" Click="BtnLanguage_Click" l:Loc.Text="🌐 Lingua" l:Loc.Tip="Lingua dell'interfaccia (applicata al riavvio)"/>
+                    <Button x:Name="BtnHelp" l:Loc.Text="?  Guida (F1)" Command="ApplicationCommands.Help" l:Loc.Tip="Apre la guida completa nel browser"/>
+                </WrapPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="10,10,10,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="390" MinWidth="320"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ============ Configurazione ============ -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,6,0">
+
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="BERSAGLI"/>
+                            <TextBlock Style="{StaticResource Hint}" l:Loc.Text="Uno per riga o separati da virgola/spazio: IP, rete CIDR (192.0.2.0/24), intervallo (192.0.2.10-20), nome (FQDN). # per i commenti."/>
+                            <TextBox x:Name="TxtTargets" AcceptsReturn="True" Height="120" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" TextWrapping="NoWrap"
+                                     l:Loc.Tip="Solo sistemi propri o con autorizzazione scritta del titolare"/>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Porte TCP"/>
+                                <TextBox x:Name="TxtPorts" Grid.Column="1" l:Loc.Tip="Porte da scansionare, es. 443 oppure 443,8443 oppure 8000-8010. Porta 80 = HTTP; altre porte: HTTPS se l'handshake TLS riesce, altrimenti HTTP"/>
+                                <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="Host header (IP)"/>
+                                <TextBox x:Name="TxtHostHeader" Grid.Row="1" Grid.Column="1" l:Loc.Tip="Nome da inviare come Host e SNI quando il bersaglio è un IP (vuoto = l'IP stesso). Utile per raggiungere un vhost dietro un IP"/>
+                                <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" l:Loc.Text="Resolver DNS"/>
+                                <TextBox x:Name="TxtResolver" Grid.Row="2" Grid.Column="1" l:Loc.Tip="Resolver esplicito per i nomi (es. 1.1.1.1 o 8.8.8.8). Vuoto = resolver di sistema. Un resolver pubblico evita esiti diversi tra DNS interno ed esterno"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="ALIVE CHECK PRELIMINARE"/>
+                            <CheckBox x:Name="ChkAlive" l:Loc.Text="Verifica che il bersaglio sia attivo prima di scansionarlo" IsChecked="True" Checked="ChkAlive_Changed" Unchecked="ChkAlive_Changed"
+                                      l:Loc.Tip="Esegue l'alive check e ne registra l'esito. Cosa fare con i bersagli non confermati lo decide la casella «Salta…» qui sotto"/>
+                            <Grid x:Name="PanelAlive" Margin="0,2,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <CheckBox x:Name="ChkIcmp" Grid.ColumnSpan="2" l:Loc.Text="ICMP (ping): su Windows non servono privilegi" IsChecked="True"/>
+                                <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="TCP, porte"/>
+                                <TextBox x:Name="TxtAliveTcp" Grid.Row="1" Grid.Column="1" l:Loc.Tip="Porte TCP da provare (vuoto = nessun test TCP). Anche un rifiuto esplicito (RST) prova che l'host è attivo"/>
+                                <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" l:Loc.Text="UDP, porte"/>
+                                <TextBox x:Name="TxtAliveUdp" Grid.Row="2" Grid.Column="1" l:Loc.Tip="Porte UDP, stessa sintassi del campo TCP (es. 53,123); vuoto = nessun test UDP. Confermano l'host solo con una risposta o un ICMP port unreachable: il silenzio non significa spento"/>
+                                <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" l:Loc.Text="Timeout (ms)"/>
+                                <TextBox x:Name="TxtAliveTimeout" Grid.Row="3" Grid.Column="1"/>
+                            </Grid>
+                            <CheckBox x:Name="ChkSkipNotAlive" l:Loc.Text="Salta i bersagli non confermati attivi" IsChecked="True"
+                                      l:Loc.Tip="Attiva: un host senza conferma riceve «Non raggiungibile» senza tentare HTTP. Disattivata: l'alive check resta registrato ma la scansione HTTP parte comunque (utile dietro firewall che bloccano ICMP)"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ============ Detection PHP (v1.4.2: percorsi, livelli, superficie, nomi, test aggiuntivi) ============ -->
+                    <Border Style="{StaticResource Section}">
+                        <Expander x:Name="ExpAdvanced" IsExpanded="False">
+                            <Expander.Header>
+                                <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="DETECTION PHP: percorsi, livelli, superficie, nomi, test aggiuntivi" Margin="0"/>
+                            </Expander.Header>
+                            <StackPanel Margin="0,6,0,0">
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Percorsi"/>
+                                    <TextBox x:Name="TxtPaths" Grid.Column="1" l:Loc.Tip="Percorsi HTTP da sondare, separati da spazio. Il primo .php che risponde diventa il percorso dei test di livello 2"/>
+                                </Grid>
+                                <TextBlock Style="{StaticResource Hint}" l:Loc.Text="Livello 1 (sempre attivo): GET sui percorsi, versione da X-Powered-By, Server, cookie PHPSESSID, errori PHP nel corpo."/>
+                                <CheckBox x:Name="ChkInfoPages" l:Loc.Text="Livello 1: cerca pagine rivelatrici (phpinfo.php, info.php, php.php, test.php)" IsChecked="True"/>
+                                <CheckBox x:Name="ChkEasterEgg" l:Loc.Text="Livello 1: easter egg di PHP (rivela PHP &lt; 5.5 con expose_php attivo)" IsChecked="False"/>
+                                <CheckBox x:Name="ChkLight" l:Loc.Text="Modalità leggera: HEAD al posto di GET (meno traffico, si perdono i segnali nel corpo)" IsChecked="False"
+                                          l:Loc.Tip="GET solo se HEAD risponde 405/501. Senza corpo non si leggono errori PHP, phpinfo e applicazione"/>
+                                <CheckBox x:Name="ChkLevel2" l:Loc.Text="Livello 2: precondizioni e barriere (multipart, varianti Content-Type, campo upload progress, limite di dimensione)" IsChecked="True"
+                                          l:Loc.Tip="Richieste POST piccole e inerti: nessuna porta PHP in esaurimento memoria, nessuna scrive sessioni"/>
+                                <Grid Margin="22,0,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Multipart di prova (KiB)"/>
+                                    <TextBox x:Name="TxtSizeKiB" Grid.Column="1" l:Loc.Tip="Dimensione del multipart usato per scoprire i limiti al perimetro (413). 1…4096"/>
+                                </Grid>
+                                <CheckBox x:Name="ChkSurface" l:Loc.Text="Superficie PHP: sonda del file .php inesistente, punti di ingresso comuni, link .php (solo HEAD/GET)" IsChecked="True"
+                                          l:Loc.Tip="Il file inesistente rivela PHP-FPM («File not found.»), php-cgi o il modulo PHP anche senza banner; 30-40 percorsi comuni e i link .php delle pagine scaricate vengono verificati con HEAD. Circa 40-60 richieste per host raggiungibile"/>
+                                <CheckBox x:Name="ChkNames" l:Loc.Text="Nomi scoperti: raccoglie CN/SAN del certificato e host delle Location" IsChecked="True" Checked="ChkNames_Changed" Unchecked="ChkNames_Changed"
+                                          l:Loc.Tip="Una scansione per IP vede solo il vhost predefinito: i nomi che l'IP dichiara da solo rivelano i siti ospitati"/>
+                                <DockPanel Margin="22,0,0,0">
+                                    <CheckBox x:Name="ChkRescanNames" l:Loc.Text="…e ripassa ogni nome sugli stessi IP (Host e SNI = nome), max per host:" IsChecked="True"
+                                              l:Loc.Tip="Una riga in più per ogni nome scoperto e ogni porta con HTTP: «nome @ IP». Raggiunge i siti veri dietro un IP condiviso"/>
+                                    <TextBox x:Name="TxtMaxNames" Width="40" Margin="6,2,0,2" HorizontalAlignment="Left" l:Loc.Tip="Nomi scoperti riscansionati per ogni host (1…50)"/>
+                                </DockPanel>
+                                <CheckBox x:Name="ChkFoldNames" l:Loc.Text="Nomi con lo stesso contenuto del vhost predefinito: nessuna riga in più (il nome va nella colonna Nome)" IsChecked="True"
+                                          l:Loc.Tip="Nella /20 di riferimento il 75% delle righe per nome era identico alla riga per IP"/>
+                                <CheckBox x:Name="ChkFoldOutcome" l:Loc.Text="Nomi con lo stesso esito (verdetto, versione, SAPI, applicazione, barriera, WAF, priorità): nessuna riga in più" IsChecked="True"
+                                          l:Loc.Tip="Farm dietro bilanciatore con certificato condiviso: dieci nomi su cinque IP davano cinquanta righe identiche. L'osservazione resta nel results.jsonl, i nomi nel report compatto e in nomi_scoperti"/>
+                                <CheckBox x:Name="ChkPureVersion" l:Loc.Text="Rami fuori supporto con numero puro (es. 7.4.33, senza suffisso di distribuzione): «Vulnerabile per versione»" IsChecked="True"
+                                          l:Loc.Tip="Un numero senza suffisso viene da una build upstream: nessun distributore può aver fatto backport, la versione dice tutto. Con suffisso (7.4.3-4ubuntu2.29) resta «Probabilmente vulnerabile»"/>
+                                <Separator Margin="0,6"/>
+                                <TextBlock Style="{StaticResource Hint}" l:Loc.Text="Test aggiuntivi in sola lettura: ogni casella è un test in più per ogni servizio raggiunto (costo in richieste tra parentesi). HEAD, GET, OPTIONS e un record FastCGI di gestione; nessun corpo, nessun contenuto riservato scaricato."/>
+                                <WrapPanel Margin="0,4,0,4">
+                                    <Button l:Loc.Text="Nessuno" Padding="8,2" Margin="0,0,6,0" Click="BtnAdvNone_Click" l:Loc.Tip="Spegne tutti i test aggiuntivi; livelli, superficie e nomi restano come sono"/>
+                                    <Button l:Loc.Text="Predefiniti" Padding="8,2" Margin="0,0,6,0" Click="BtnAdvDefaults_Click" l:Loc.Tip="Ripristina i test aggiuntivi predefiniti: tutti tranne User-Agent da browser, Certificate Transparency e livello 2 su ogni .php"/>
+                                    <Button l:Loc.Text="Massima detection" Padding="8,2" Margin="0,0,6,0" Click="BtnAdvMax_Click" l:Loc.Tip="Accende tutto ciò che aumenta la detection: tutti i test aggiuntivi (anche User-Agent da browser, Certificate Transparency e livello 2 su ogni .php), livello 2, superficie PHP, nomi con seconda passata, pagine rivelatrici, easter egg; spegne la modalità leggera"/>
+                                </WrapPanel>
+                                <CheckBox x:Name="AdvHeadVsGet" l:Loc.Text="HEAD contro GET e OPTIONS sul percorso principale (2): cache, filtri solo sulle GET, metodi consentiti, TRACE" IsChecked="True"/>
+                                <CheckBox x:Name="AdvComposer" l:Loc.Text="composer.json, vendor/autoload.php, installed.json (3): versione minima di PHP dichiarata, librerie e versioni" IsChecked="True"/>
+                                <CheckBox x:Name="AdvStatus" l:Loc.Text="Pagine di stato esposte (6): server-info e server-status di Apache (moduli = SAPI certa), nginx_status, stato di PHP-FPM" IsChecked="True"/>
+                                <CheckBox x:Name="AdvAppVersion" l:Loc.Text="File di versione delle applicazioni (2-4): readme.html, joomla.xml, CHANGELOG, pagine di debug dei framework; confronto con NCSC-NL" IsChecked="True"/>
+                                <CheckBox x:Name="AdvFastCgi" l:Loc.Text="Sonda FastCGI sulla porta 9000 (1 per host): php-fpm esposto su TCP" IsChecked="True"/>
+                                <CheckBox x:Name="AdvBehaviours" l:Loc.Text="Comportamenti tipici di PHP (8-10): PATH_INFO, xmlrpc.php, sorgenti esposti (.phps, .bak…), pagine rivelatrici aggiuntive" IsChecked="True"/>
+                                <DockPanel>
+                                    <CheckBox x:Name="AdvLevel2All" l:Loc.Text="Livello 2 su ogni .php scoperto, non solo sul principale (2 per percorso), max percorsi:" IsChecked="False"/>
+                                    <TextBox x:Name="TxtLevel2Max" Width="40" Margin="6,2,0,2" HorizontalAlignment="Left" Text="5"/>
+                                </DockPanel>
+                                <CheckBox x:Name="AdvBrowserUa" l:Loc.Text="Secondo giro con User-Agent da browser che contiene il nome dello strumento (1): filtri sugli UA, pagina vera" IsChecked="False"/>
+                                <CheckBox x:Name="AdvComponents" l:Loc.Text="Inventario dei componenti dalle pagine scaricate (0): plugin e temi WordPress, componenti Joomla, moduli Drupal" IsChecked="True"/>
+                                <CheckBox x:Name="AdvExposures" l:Loc.Text="Esposizioni accessorie con sole HEAD (15): .env, .git, .svn, backup e dump comuni; solo l'esistenza" IsChecked="True"/>
+                                <CheckBox x:Name="AdvPtr" l:Loc.Text="Più nomi (1 per host): PTR dell'IP e ServerName nelle pagine di errore di Apache" IsChecked="True"/>
+                                <CheckBox x:Name="AdvCt" l:Loc.Text="Certificate Transparency (crt.sh) per i domini scoperti: nessun traffico verso i bersagli, richieste a un servizio esterno" IsChecked="False"/>
+                                <CheckBox x:Name="AdvSessionId" l:Loc.Text="Adozione dell'ID di sessione (1): una GET con un PHPSESSID casuale nuovo; se il server lo adotta, session.use_strict_mode è spento" IsChecked="False"
+                                          l:Loc.Tip="Una visita come un'altra: lascia sul server quello che lascia qualunque GET a un'applicazione con sessioni. Nessuna sessione di utenti, nessun login. Spento per impostazione predefinita"/>
+                            </StackPanel>
+                        </Expander>
+                    </Border>
+
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="WAF, MOTORE E DEBUG"/>
+                            <CheckBox x:Name="ChkWaf" l:Loc.Text="Rileva WAF / CDN / reverse proxy / bilanciatori" IsChecked="True"/>
+                            <CheckBox x:Name="ChkWafBehaviour" Margin="22,4" l:Loc.Text="…anche con test comportamentale (parametri ostili inerti, richieste ripetute)" IsChecked="True"/>
+                            <Grid Margin="0,0,0,2">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Budget per servizio (s)"/>
+                                <TextBox x:Name="TxtBudget" Grid.Column="1" Width="60" HorizontalAlignment="Left" l:Loc.Tip="Oltre questo tempo le sonde facoltative restanti del servizio (superficie, test aggiuntivi) vengono saltate e segnate nel test BUDGET; livello 1, livello 2 e WAF non si saltano mai. 0 = nessun budget. Nella /22 di riferimento un backend morto che risponde 502 in 1 s costava 170 s per servizio"/>
+                            </Grid>
+                            <CheckBox x:Name="ChkPrecheck" l:Loc.Text="Pre-controllo TCP di tutte le porte in parallelo: TLS e HTTP solo dove la porta risponde" IsChecked="True"
+                                      l:Loc.Tip="Le porte chiuse o filtrate degli host attivi costano una sola attesa invece di un handshake ciascuna"/>
+                            <CheckBox x:Name="ChkDebug" l:Loc.Text="Modalità debug: corpi completi (1 MiB), intestazioni inviate, samples.json anonimizzato" IsChecked="False"
+                                      l:Loc.Tip="results.json diventa molto più grande. samples.json contiene un campione per ogni combinazione distinta di Server / X-Powered-By / applicazione / cookie, con IP e nomi sostituiti"/>
+                            <CheckBox x:Name="ChkReportUnreachable" l:Loc.Text="Report: schede di dettaglio anche per i bersagli non raggiungibili" IsChecked="False"
+                                      l:Loc.Tip="Disattivata: i non raggiungibili restano nella tabella e nel CSV, il report resta leggero anche su migliaia di host"/>
+                            <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" l:Loc.Text="Nessun test dimostra la sfruttabilità: senza versione dichiarata il verdetto resta «Non determinabile» e la prova va cercata sull'host. Lo scanner non contiene codice di sfruttamento."/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="CICLI, ORDINE E RITMO"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Cicli di scansione"/>
+                                <TextBox x:Name="TxtCycles" Grid.Column="1" l:Loc.Tip="Quante volte ripassare l'intero elenco (1…1000). Ogni ciclo è una passata completa; «Interrompi» ferma tutto"/>
+                                <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="Pausa tra i cicli (s)"/>
+                                <TextBox x:Name="TxtCyclePause" Grid.Row="1" Grid.Column="1"/>
+                                <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" l:Loc.Text="Pausa tra richieste (ms)"/>
+                                <DockPanel Grid.Row="2" Grid.Column="1">
+                                    <TextBox x:Name="TxtDelayMin" Width="60" l:Loc.Tip="Pausa minima prima di ogni richiesta HTTP verso lo stesso host (0 = nessuna)"/>
+                                    <TextBlock Text="–" Margin="6,2" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="TxtDelayMax" Width="60" HorizontalAlignment="Left" l:Loc.Tip="Pausa massima: ogni richiesta attende un valore casuale tra minimo e massimo"/>
+                                </DockPanel>
+                                <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" l:Loc.Text="Tetto richieste/s"/>
+                                <TextBox x:Name="TxtRate" Grid.Row="3" Grid.Column="1" l:Loc.Tip="Richieste HTTP al secondo complessive, su tutti i thread (0 = nessun limite)"/>
+                            </Grid>
+                            <CheckBox x:Name="ChkConsolidate" l:Loc.Text="Consolida i cicli in una sessione (vince il risultato più informativo, a parità il più recente)" IsChecked="True"
+                                      l:Loc.Tip="Disattivata: una cartella di sessione per ciclo (…_c2of5), ciascuna con i propri file e report. Attivata: un'unica sessione, la storia dei verdetti resta in ogni riga"/>
+                            <CheckBox x:Name="ChkRandom" l:Loc.Text="Ordine casuale degli host e delle porte a ogni ciclo" IsChecked="False"
+                                      l:Loc.Tip="Mescola gli host (l'alive check resta uno per host). Con le pause tra richieste e il tetto evita di assomigliare a un attacco per un IDS/IPS; la stima di fine ciclo diventa più stabile"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Section}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="TEMPI E USCITA"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Timeout connessione (ms)"/>
+                                <TextBox x:Name="TxtConnectTimeout" Grid.Column="1"/>
+                                <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="Timeout lettura (ms)"/>
+                                <TextBox x:Name="TxtReadTimeout" Grid.Row="1" Grid.Column="1"/>
+                                <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" l:Loc.Text="Thread paralleli"/>
+                                <TextBox x:Name="TxtThreads" Grid.Row="2" Grid.Column="1" l:Loc.Tip="Bersagli scansionati in parallelo (1…64)"/>
+                                <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" l:Loc.Text="Etichetta sessione"/>
+                                <TextBox x:Name="TxtLabel" Grid.Row="3" Grid.Column="1" l:Loc.Tip="Aggiunta al nome della cartella di sessione (es. cliente o perimetro)"/>
+                                <TextBlock Grid.Row="4" Style="{StaticResource Lbl}" l:Loc.Text="Formato CSV"/>
+                                <ComboBox x:Name="CmbCsv" Grid.Row="4" Grid.Column="1">
+                                    <ComboBoxItem Tag="ExcelItalian" l:Loc.Text="Excel italiano (; e virgola decimale)"/>
+                                    <ComboBoxItem Tag="Standard" l:Loc.Text="Standard (, e punto decimale)"/>
+                                </ComboBox>
+                                <TextBlock Grid.Row="5" Style="{StaticResource Lbl}" l:Loc.Text="Cartella sessioni"/>
+                                <DockPanel Grid.Row="5" Grid.Column="1">
+                                    <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseFolder_Click"/>
+                                    <TextBox x:Name="TxtOutput"/>
+                                </DockPanel>
+                                <TextBlock Grid.Row="6" Style="{StaticResource Lbl}" l:Loc.Text="Inventario (CSV/JSON)"/>
+                                <DockPanel Grid.Row="6" Grid.Column="1">
+                                    <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseInventory_Click"/>
+                                    <TextBox x:Name="TxtInventory" l:Loc.Tip="Facoltativo: file con una riga per sistema (colonne target/ip/nome, php_version, ambiente, referente, note, applicazione; separatore , ; o tab; anche JSON). A fine scansione i risultati vengono riconciliati: referente accanto a ogni servizio, versioni diverse, dichiarati non osservati, osservati non inventariati; sezione Inventario nel report compatto"/>
+                                </DockPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent"/>
+
+            <!-- ============ Risultati ============ -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="6"/>
+                    <RowDefinition Height="200" MinHeight="80"/>
+                </Grid.RowDefinitions>
+
+                <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Border Style="{StaticResource Kpi}" l:Loc.Tip="Coppie bersaglio/porta completate su totale (il totale cresce con i nomi scoperti)"><StackPanel><TextBlock x:Name="KpiDoneLabel" Style="{StaticResource KpiLabel}" l:Loc.Text="Completati"/><TextBlock x:Name="KpiDone" Style="{StaticResource KpiValue}" Text="0 / 0"/><TextBlock x:Name="KpiDoneSub" Style="{StaticResource KpiSub}" l:Loc.Text="servizi"/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="alive" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Host distinti confermati attivi dall'alive check (con alive check spento: con almeno una risposta TCP/TLS/HTTP). Clic: filtra le righe degli host attivi; secondo clic: tutti"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Host attivi"/><TextBlock x:Name="KpiAlive" Style="{StaticResource KpiValue}" Text="0"/><TextBlock x:Name="KpiAliveSub" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="VulnerableByVersion" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Vulnerabili per versione"/><TextBlock x:Name="KpiVuln" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Danger}"/><TextBlock x:Name="KpiVulnHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="LikelyVulnerable" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Probabilmente vulnerabili"/><TextBlock x:Name="KpiLikely" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Danger}"/><TextBlock x:Name="KpiLikelyHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="Undetermined" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Non determinabili"/><TextBlock x:Name="KpiUndet" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Warn}"/><TextBlock x:Name="KpiUndetHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="MitigatedAtEdge" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Mitigati al perimetro"/><TextBlock x:Name="KpiMitig" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Warn}"/><TextBlock x:Name="KpiMitigHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="FixedByVersion" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Corretti per versione"/><TextBlock x:Name="KpiFixed" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Ok}"/><TextBlock x:Name="KpiFixedHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="NoPhpDetected" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="PHP non rilevato"/><TextBlock x:Name="KpiNoPhp" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Muted}"/><TextBlock x:Name="KpiNoPhpHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="NotReachable" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Non raggiungibili"/><TextBlock x:Name="KpiUnreach" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Muted}"/><TextBlock x:Name="KpiUnreachHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                </WrapPanel>
+
+                <Border Grid.Row="1" Style="{StaticResource Section}" Padding="0" Margin="0">
+                    <DockPanel>
+                        <WrapPanel DockPanel.Dock="Top" Margin="8,6,8,2" Orientation="Horizontal">
+                            <WrapPanel.Resources>
+                                <!-- v1.5: tendine a scelta multipla. Ogni voce è un MultiSelectItem; il clic sulla riga (gestito in anteprima sul ComboBoxItem)
+                                     inverte la spunta senza selezionare né chiudere la tendina; la casella è solo visiva. -->
+                                <DataTemplate x:Key="MultiSelectTemplate">
+                                    <CheckBox Content="{Binding Label}" IsChecked="{Binding IsChecked, Mode=OneWay}" IsHitTestVisible="False" Focusable="False" Margin="2,1" VerticalContentAlignment="Center"/>
+                                </DataTemplate>
+                                <Style x:Key="MultiSelectItemStyle" TargetType="ComboBoxItem">
+                                    <Setter Property="Focusable" Value="False"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <EventSetter Event="PreviewMouseLeftButtonDown" Handler="MultiSelectItem_PreviewMouseLeftButtonDown"/>
+                                </Style>
+                                <Style x:Key="MultiSelectHeader" TargetType="TextBlock">
+                                    <Setter Property="IsHitTestVisible" Value="False"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                    <Setter Property="Margin" Value="6,0,22,0"/>
+                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                </Style>
+                            </WrapPanel.Resources>
+                            <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Filtri:" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TxtFilter" Width="260" TextChanged="Filter_Changed" l:Loc.Tip="parole = AND · a|b = OR · -x = escludi · &quot;testo con spazi&quot; · campo:valore (ip, nome, porta, ver, sapi, app, waf, motivo, superficie, verdetto, priorita, alive, barriera, php, tech, esposizione, os, ciclo) · jolly * e ? (ancorati) · ip:192.0.2.0/24 e ip:192.0.2.10-50"/>
+                            <Grid Margin="6,2,0,2">
+                                <ComboBox x:Name="CmbFilterVerdict" Width="200" IsEditable="False" StaysOpenOnEdit="True" ItemTemplate="{StaticResource MultiSelectTemplate}" ItemContainerStyle="{StaticResource MultiSelectItemStyle}" SelectionChanged="MultiSelect_SelectionChanged" l:Loc.Tip="Verdetto: più scelte in OR; tra le tendine vale l'AND"/>
+                                <TextBlock x:Name="LblFilterVerdict" Style="{StaticResource MultiSelectHeader}"/>
+                            </Grid>
+                            <Grid Margin="6,2,0,2">
+                                <ComboBox x:Name="CmbFilterPriority" Width="140" IsEditable="False" StaysOpenOnEdit="True" ItemTemplate="{StaticResource MultiSelectTemplate}" ItemContainerStyle="{StaticResource MultiSelectItemStyle}" SelectionChanged="MultiSelect_SelectionChanged" l:Loc.Tip="Priorità: più scelte in OR; tra le tendine vale l'AND"/>
+                                <TextBlock x:Name="LblFilterPriority" Style="{StaticResource MultiSelectHeader}"/>
+                            </Grid>
+                            <Grid Margin="6,2,0,2">
+                                <ComboBox x:Name="CmbFilterAlive" Width="150" IsEditable="False" StaysOpenOnEdit="True" ItemTemplate="{StaticResource MultiSelectTemplate}" ItemContainerStyle="{StaticResource MultiSelectItemStyle}" SelectionChanged="MultiSelect_SelectionChanged" l:Loc.Tip="Alive: più scelte in OR; tra le tendine vale l'AND"/>
+                                <TextBlock x:Name="LblFilterAlive" Style="{StaticResource MultiSelectHeader}"/>
+                            </Grid>
+                            <Grid Margin="6,2,0,2">
+                                <ComboBox x:Name="CmbFilterBarrier" Width="180" IsEditable="False" StaysOpenOnEdit="True" ItemTemplate="{StaticResource MultiSelectTemplate}" ItemContainerStyle="{StaticResource MultiSelectItemStyle}" SelectionChanged="MultiSelect_SelectionChanged" l:Loc.Tip="Barriera multipart: più scelte in OR; tra le tendine vale l'AND"/>
+                                <TextBlock x:Name="LblFilterBarrier" Style="{StaticResource MultiSelectHeader}"/>
+                            </Grid>
+                            <Button l:Loc.Text="Azzera filtri" Padding="8,2" Margin="8,2,0,2" Click="BtnClearFilters_Click"/>
+                            <TextBlock x:Name="TxtFilterCount" Style="{StaticResource Hint}" Margin="10,4,0,0" VerticalAlignment="Center"/>
+                        </WrapPanel>
+                        <DataGrid x:Name="GridResults" SelectionMode="Single" MouseDoubleClick="GridResults_MouseDoubleClick" CanUserSortColumns="True" Sorting="GridResults_Sorting"
+                                  HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Auto" ColumnWidth="Auto" MinColumnWidth="40" EnableColumnVirtualization="False">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Binding="{Binding Started}" Width="165" l:Loc.Text="Avvio" SortMemberPath="StartedTicks" FontFamily="Consolas"/>
+                                <DataGridTextColumn Binding="{Binding Ip}" Width="125" l:Loc.Text="Bersaglio" SortMemberPath="SortKey"/>
+                                <DataGridTextColumn Binding="{Binding Name}" Width="200" l:Loc.Text="Nome" SortMemberPath="NameSort"/>
+                                <DataGridTextColumn Binding="{Binding Port}" Width="70" l:Loc.Text="Porta" SortMemberPath="PortNumber"/>
+                                <DataGridTextColumn Binding="{Binding Alive}" Width="110" l:Loc.Text="Alive"/>
+                                <DataGridTextColumn Binding="{Binding Php}" Width="45" l:Loc.Text="PHP"/>
+                                <DataGridTextColumn Binding="{Binding Version}" Width="110" l:Loc.Text="Versione"/>
+                                <DataGridTextColumn Binding="{Binding Sapi}" Width="75" l:Loc.Text="SAPI"/>
+                                <DataGridTextColumn Binding="{Binding App}" Width="95" l:Loc.Text="App"/>
+                                <DataGridTextColumn Binding="{Binding Surface}" Width="60" l:Loc.Text="Superficie" SortMemberPath="SurfaceCount"/>
+                                <DataGridTextColumn Binding="{Binding Multipart}" Width="150" l:Loc.Text="Barriera multipart"/>
+                                <DataGridTextColumn Binding="{Binding Waf}" Width="190" l:Loc.Text="WAF / proxy / bilanciatore"/>
+                                <DataGridTextColumn Binding="{Binding Verdict}" Width="185" l:Loc.Text="Verdetto"/>
+                                <DataGridTextColumn Binding="{Binding PriorityText}" Width="75" l:Loc.Text="Priorità" SortMemberPath="PriorityOrder"/>
+                                <DataGridTextColumn Binding="{Binding Duration}" Width="65" l:Loc.Text="ms" SortMemberPath="DurationMs"/>
+                                <DataGridTextColumn Binding="{Binding CycleText}" Width="55" l:Loc.Text="Ciclo" SortMemberPath="CycleNumber"/>
+                                <DataGridTextColumn Binding="{Binding Owner}" Width="130" l:Loc.Text="Referente"/>
+                                <DataGridTextColumn Binding="{Binding Certificate}" Width="160" l:Loc.Text="Certificato"/>
+                                <DataGridTextColumn Binding="{Binding Reason}" Width="700" l:Loc.Text="Motivazione"/>
+                            </DataGrid.Columns>
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Severity}" Value="bad"><Setter Property="Background" Value="#FEF2F2"/></DataTrigger>
+                                        <DataTrigger Binding="{Binding Severity}" Value="warn"><Setter Property="Background" Value="#FFF8E6"/></DataTrigger>
+                                        <DataTrigger Binding="{Binding Severity}" Value="ok"><Setter Property="Background" Value="#ECFDF3"/></DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.RowStyle>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+
+                <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" Background="Transparent"/>
+
+                <Border Grid.Row="3" Style="{StaticResource Section}" Padding="0" Margin="0">
+                    <DockPanel>
+                        <DockPanel DockPanel.Dock="Top" Margin="10,6,10,2">
+                            <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="LOG" Margin="0"/>
+                            <Button DockPanel.Dock="Right" l:Loc.Text="Svuota" Padding="8,1" Margin="0" Click="BtnClearLog_Click" HorizontalAlignment="Right"/>
+                        </DockPanel>
+                        <TextBox x:Name="TxtLog" IsReadOnly="True" FontFamily="Consolas" FontSize="11.5" BorderThickness="0" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" Margin="4,0,4,4"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ============ Barra di stato ============ -->
+        <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="12,5">
+            <DockPanel>
+                <ProgressBar x:Name="Progress" DockPanel.Dock="Right" Width="220" Height="12" Minimum="0" Maximum="1" Value="0" Margin="12,0,0,0"/>
+                <TextBlock x:Name="TxtEta" DockPanel.Dock="Right" Text="" Foreground="{StaticResource Muted}" Margin="12,0,0,0" FontWeight="SemiBold"
+                           l:Loc.Tip="Stima sul ritmo degli ultimi 5 minuti (media mobile), non sulla media dall'inizio: con l'ordine sequenziale oscilla al cambio di sottorete, con l'ordine casuale è stabile. Fine loop = ciclo corrente proiettato + cicli restanti × durata dell'ultimo ciclo + pause"/>
+                <TextBlock x:Name="TxtStatus" Text="" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

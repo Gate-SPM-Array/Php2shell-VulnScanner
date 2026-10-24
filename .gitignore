@@ -1,0 +1,33 @@
+# Build output
+bin/
+obj/
+publish/
+dist/
+*.user
+*.suo
+.vs/
+.idea/
+TestResults/
+
+# Runtime data of the portable app (never commit: contains targets, customer names and scan results)
+Sessioni/
+*.settings.json
+*.history.json
+crash.log
+Guida_PhpVulnScanner_v*.html
+Guide_PhpVulnScanner_v*.html
+# Exported logs and reports (contain customer host names and IP addresses)
+results.csv
+results.json
+scan.log
+report_v*.html
+scan_*.txt
+scan_*.csv
+scan_*.json
+
+# agent worktrees
+.claude/worktrees/
+results.jsonl
+samples.json
+# Private scan data used for analysis (never in the sources zip)
+private-data/

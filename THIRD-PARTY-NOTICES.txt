@@ -1,0 +1,22 @@
+PHP Vuln Scanner - third-party notices
+
+The application is built on the .NET 10 runtime and Windows Presentation Foundation (WPF),
+Copyright (c) .NET Foundation and Contributors, licensed under the MIT License
+(https://github.com/dotnet/runtime/blob/main/LICENSE.TXT).
+
+The test project uses xUnit (Apache License 2.0), Microsoft.NET.Test.Sdk (MIT) and coverlet (MIT).
+
+Data files bundled in data\ (no code taken, only data; version and extraction date in data\DATA-VERSION.txt):
+- data\technologies.json and data\categories.json are derived from the technology signatures of
+  enthec/webappanalyzer (https://github.com/enthec/webappanalyzer), licensed under the GNU General
+  Public License v3.0 (full text in data\LICENSE-webappanalyzer.txt). The conversion script is
+  tools\build_appdb.py in the source tree. Fields that need a browser (JavaScript, DOM, CSS) are removed.
+- data\ncsc_inventory.json is derived from the PHP downstream inventory published by NCSC-NL
+  (https://github.com/NCSC-NL/php2shell, software/spdx/PHP_Downstream_Inventory.spdx3.json, SPDX 3 + VEX),
+  licensed under the European Union Public Licence v1.2 (full text in data\LICENSE-ncsc-nl.txt).
+
+The data files can be refreshed by re-running tools\build_appdb.py; the program reads whatever is in data\.
+
+No other third-party library is bundled. WAF/CDN signatures and the hand-written application signatures are
+original work informed by public documentation of the respective vendors and by the open-source project
+wafw00f (BSD-3-Clause), from which no code was taken.

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PhpVulnScanner.Core</RootNamespace>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- copia di riserva dell'inglese: l'eseguibile resta autosufficiente anche senza la cartella lang\ -->
+    <EmbeddedResource Include="..\..\lang\en.json" LogicalName="lang.en.json" />
+    <InternalsVisibleTo Include="PhpVulnScanner.Tests" />
+  </ItemGroup>
+
+</Project>
