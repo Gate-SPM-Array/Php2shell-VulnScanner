@@ -31,3 +31,6 @@ results.jsonl
 samples.json
 # Private scan data used for analysis (never in the sources zip)
 private-data/
+
+# Trascrizioni delle sessioni (regola 11 di CLAUDE.md): contengono dati del cliente
+Trascrizioni/
