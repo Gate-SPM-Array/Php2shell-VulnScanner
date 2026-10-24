@@ -33,6 +33,9 @@ Scanner difensivo per PHP2Shell (CVE-2026-109618/109619): alive check, pre-contr
 ## CVE-2026-115560 (advisory informativa PHP, 23/10/2026)
 Serve `session.serialize_handler` = `php_binary`/`php_serialize` in configurazione, riportato a `php` con `ini_set()` prima di `session_start()`, con upload progress attivo. Nessuna release corretta; mitigazione `session.upload_progress.enabled=0`. Invisibile dall'esterno: lo scanner la tratta solo tramite la pagina phpinfo quando esposta.
 
+## Proposta pronta per la v1.7 (via del maintainer ancora da dare)
+"Esporta per analisi…" (pulsante accanto a "Esporta log…" e `--analysis-bundle` da CLI): `<sessione>_analisi_vX.Y.zip` con `session.json`, `scan.log`, `results.json` e `results.jsonl` **senza corpi** (al posto del corpo lunghezza e SHA-256; restano stato, intestazioni, test, evidenze, durate), `tests.csv`, `results.csv`, i due report, i file degli host, a scelta `samples.json`. Motivo: Claude Code accetta upload fino a 30 MB; gli zip di sessione reali pesano 60-75 MB per i corpi in debug, mentre senza corpi stanno in 2-10 MB. Costo ~1 h.
+
 ## Punti aperti
 - Prova della v1.6 su Windows e nuovo giro con le impostazioni sopra; analisi del `scan.log` (righe `BUDGET`, `ADV-SKIP`, durata dei cicli); fusione con le sessioni precedenti.
 - Formato dell'orario: confermare le 3 cifre di millisecondi.
