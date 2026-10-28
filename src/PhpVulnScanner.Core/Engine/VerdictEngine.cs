@@ -48,6 +48,14 @@ public static class VerdictEngine
         return Priority.None;
     }
 
+    /// <summary>v1.10: porta aperta ma connessione chiusa con RST durante l'handshake TLS o la prima richiesta (sulla /20 ~37 host per ciclo, sempre gli stessi: l'IPS).</summary>
+    public static bool IsPerimeterReset(ScanResult r)
+    {
+        if (r.HttpReachable) return false;
+        static bool Reset(string? s) => s != null && (s.Contains("forzatamente", StringComparison.OrdinalIgnoreCase) || s.Contains("forcibly", StringComparison.OrdinalIgnoreCase) || s.Contains("reset", StringComparison.OrdinalIgnoreCase) || s.Contains("ECONNRESET", StringComparison.Ordinal));
+        return Reset(r.Tls?.Error) || Reset(r.Error) || r.Requests.Any(q => !q.HasResponse && q.ErrorKind == "reset");
+    }
+
     private static void Decide(ScanResult r)
     {
         if (!r.HttpReachable)
@@ -55,7 +63,9 @@ public static class VerdictEngine
             r.Verdict = Verdict.NotReachable;
             r.VerdictReason = r.Alive == AliveState.NoResponse
                 ? L.F("alive check senza risposta ({0})", r.AliveDetails)
-                : L.F("nessuna risposta HTTP su {0}/{1}{2}", r.Port, r.Scheme, r.Error.Length > 0 ? ": " + r.Error : "");
+                : IsPerimeterReset(r)
+                    ? L.F("connessione chiusa dal perimetro durante il TLS su {0} (probabile IPS: l'host esiste, il servizio non si lascia leggere)", r.Port)   // v1.10
+                    : L.F("nessuna risposta HTTP su {0}/{1}{2}", r.Port, r.Scheme, r.Error.Length > 0 ? ": " + r.Error : "");
             return;
         }
 

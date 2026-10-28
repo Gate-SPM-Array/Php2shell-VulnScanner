@@ -41,6 +41,10 @@
                             l:Loc.Tip="Fonde due o più sessioni sugli stessi range (anche di versioni diverse) in una nuova sessione: vince il risultato più informativo, con la storia per sessione e il report delle differenze"/>
                     <Button x:Name="BtnUpdateData" l:Loc.Text="Aggiorna dati…" Click="BtnUpdateData_Click"
                             l:Loc.Tip="Scarica da GitHub le firme delle tecnologie (webappanalyzer) e l'inventario NCSC-NL aggiornati nella cartella data\ (richiede accesso a internet)"/>
+                    <Button x:Name="BtnSaveConfig" l:Loc.Text="Salva config…" Click="BtnSaveConfig_Click"
+                            l:Loc.Tip="Salva tutti i parametri della scansione in un file JSON, riusabile dall'interfaccia (Carica config…) e da riga di comando (--config)"/>
+                    <Button x:Name="BtnLoadConfig" l:Loc.Text="Carica config…" Click="BtnLoadConfig_Click"
+                            l:Loc.Tip="Carica i parametri da un file JSON salvato con «Salva config…» oppure dal session.json di una sessione"/>
                     <Rectangle Width="1" Fill="{StaticResource Line}" Margin="6,2,12,2"/>
                     <Button x:Name="BtnLanguage" Click="BtnLanguage_Click" l:Loc.Text="🌐 Lingua" l:Loc.Tip="Lingua dell'interfaccia (applicata al riavvio)"/>
                     <Button x:Name="BtnHelp" l:Loc.Text="?  Guida (F1)" Command="ApplicationCommands.Help" l:Loc.Tip="Apre la guida completa nel browser"/>
@@ -135,6 +139,7 @@
                                               l:Loc.Tip="Una riga in più per ogni nome scoperto e ogni porta con HTTP: «nome @ IP». Raggiunge i siti veri dietro un IP condiviso"/>
                                     <TextBox x:Name="TxtMaxNames" Width="40" Margin="6,2,0,2" HorizontalAlignment="Left" l:Loc.Tip="Nomi scoperti riscansionati per ogni host (1…50)"/>
                                 </DockPanel>
+                                <CheckBox x:Name="ChkCtDns" l:Loc.Text="Nomi da Certificate Transparency solo se risolvono sull'IP in esame (verifica DNS)" IsChecked="True" l:Loc.Tip="I nomi presi da crt.sh sono tutti i nomi del dominio con un certificato, ospitati o no su questo IP. Con la verifica, un nome entra solo se risolve su questo IP; se risolve su un altro IP della lista va a quell'host; gli altri restano tracciati nella scheda. Sulla /20 di riferimento l'80% del tempo andava a nomi che non vivevano sull'IP"/>
                                 <CheckBox x:Name="ChkFoldNames" l:Loc.Text="Nomi con lo stesso contenuto del vhost predefinito: nessuna riga in più (il nome va nella colonna Nome)" IsChecked="True"
                                           l:Loc.Tip="Nella /20 di riferimento il 75% delle righe per nome era identico alla riga per IP"/>
                                 <CheckBox x:Name="ChkFoldOutcome" l:Loc.Text="Nomi con lo stesso esito (verdetto, versione, SAPI, applicazione, barriera, WAF, priorità): nessuna riga in più" IsChecked="True"

@@ -997,7 +997,7 @@ public static class AdvancedProbes
                         {
                             if (added >= MaxCtNames) break;
                             if (r.DiscoveredNames.Contains(n, StringComparer.OrdinalIgnoreCase)) continue;
-                            r.DiscoveredNames.Add(n); added++;
+                            r.DiscoveredNames.Add(n); r.CtNames.Add(n); added++;
                         }
                     }
                     r.Add("ADV-HOST-CT", L.T("Certificate Transparency (crt.sh)"), TestOutcome.Info,

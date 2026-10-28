@@ -23,12 +23,14 @@ public static class ReportGenerator
     public static string Generate(ScanSession session, string? folder = null)
     {
         folder ??= session.Folder;
-        var full = SessionFiles.NextReportPath(folder, SessionFiles.FullReportPrefix, session.AppVersion);
-        File.WriteAllText(full, Build(session, PerCycleSection(session, folder)), new UTF8Encoding(false));
         var compact = SessionFiles.NextReportPath(folder, SessionFiles.CompactReportPrefix, session.AppVersion);
+        // v1.10: i CSV rigenerati (elenco per Excel, results_cN) prendono lo stesso suffisso _2, _3 del report, invece di sovrascrivere i precedenti
+        string suffix = Suffix(compact);
+        var full = SessionFiles.NextReportPath(folder, SessionFiles.FullReportPrefix, session.AppVersion);
+        File.WriteAllText(full, Build(session, PerCycleSection(session, folder, suffix)), new UTF8Encoding(false));
         File.WriteAllText(compact, BuildCompact(session, Path.GetFileName(full)), new UTF8Encoding(false));
         // v1.8: elenco per Excel anche come CSV accanto al report
-        try { File.WriteAllText(Path.Combine(folder, CompactReportGenerator.ExcelCsvName(session.AppVersion)), CompactReportGenerator.ExcelCsv(session, new CsvFormat(session.Config.CsvDialect)), SessionFiles.Utf8Bom); } catch { }
+        try { File.WriteAllText(Path.Combine(folder, CompactReportGenerator.ExcelCsvName(session.AppVersion, suffix)), CompactReportGenerator.ExcelCsv(session, new CsvFormat(session.Config.CsvDialect)), SessionFiles.Utf8Bom); } catch { }
         return compact;
     }
 
@@ -36,7 +38,15 @@ public static class ReportGenerator
     public static string BuildCompact(ScanSession s, string fullReportFileName) => CompactReportGenerator.Build(s, fullReportFileName);
 
     /// <summary>Sezione "Per ciclo" dei loop consolidati, dalle osservazioni di results.jsonl nella cartella; null quando non c'è nulla da aggiungere.</summary>
-    public static string? PerCycleSection(ScanSession s, string folder)
+    /// <summary>Suffisso di rigenerazione del nome di un report ("" per il primo, "_2", "_3"…).</summary>
+    public static string Suffix(string reportPath)
+    {
+        string stem = Path.GetFileNameWithoutExtension(reportPath);
+        int i = stem.LastIndexOf('_');
+        return i > 0 && int.TryParse(stem[(i + 1)..], out _) ? stem[i..] : "";
+    }
+
+    public static string? PerCycleSection(ScanSession s, string folder, string suffix = "")
     {
         try
         {
@@ -51,7 +61,7 @@ public static class ReportGenerator
             var csv = new CsvFormat(s.Config.CsvDialect);
             foreach (var (cycle, session) in cycles)
             {
-                try { File.WriteAllText(Path.Combine(folder, $"results_c{cycle}.csv"), SessionFiles.ResultsToCsv(session.Results, csv), SessionFiles.Utf8Bom); } catch { }
+                try { File.WriteAllText(Path.Combine(folder, $"results_c{cycle}{suffix}.csv"), SessionFiles.ResultsToCsv(session.Results, csv), SessionFiles.Utf8Bom); } catch { }
             }
             return CycleReports.BuildPerCycleSection(s, cycles);
         }

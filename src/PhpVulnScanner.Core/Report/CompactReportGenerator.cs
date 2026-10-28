@@ -115,7 +115,7 @@ public static class CompactReportGenerator
             foreach (var r in attention)
             {
                 string ncsc = NcscShort(r.NcscStatus);
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
                   .Append(Badge(r.Verdict)).Append("</td><td>").Append(E(Labels.Priority(r.Priority))).Append("</td><td>").Append(E(PhpCell(r))).Append("</td><td>").Append(E(r.Sapi.Length > 0 ? Labels.Sapi(r.Sapi) : "–")).Append("</td><td>")
                   .Append(E(AppCell(r))).Append(ncsc != r.NcscStatus && r.NcscStatus.Length > 0 ? "</td><td title=\"" + E(r.NcscStatus) + "\">" : "</td><td>").Append(E(ncsc)).Append("</td><td>").Append(E(Labels.Multipart(r.Multipart))).Append(r.VariantsBlocked >= 0 ? $" ({r.VariantsBlocked}/{r.VariantsTotal})" : "").Append("</td><td>")
                   .Append(E(r.WafSummary.Length > 0 ? r.WafSummary : "–")).Append("</td><td>").Append(r.PhpSurface.Count).Append("</td><td>").Append(CycleCell(r, s)).Append("</td><td class=\"why\">").Append(E(ShortReason(r.VerdictReason))).Append("</td></tr>");
@@ -138,7 +138,7 @@ public static class CompactReportGenerator
                 if (HasPhpInfo(r)) items.Add(L.F("pagina phpinfo esposta: {0}", r.PhpVersionSource));
                 if (HasDirectoryListing(r)) items.Add(L.T("directory listing sul percorso principale"));
                 foreach (var x in r.Exposures) if (!items.Contains(x)) items.Add(x);
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(E(string.Join("; ", items))).Append("</td></tr>");
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(E(string.Join("; ", items))).Append("</td></tr>");
             }
             sb.Append("</tbody></table>");
         }
@@ -176,7 +176,7 @@ public static class CompactReportGenerator
             foreach (var h in new[] { L.T("Bersaglio"), L.T("Nomi"), L.T("Porta"), L.T("Punteggio"), L.T("Indizi"), L.T("WAF") }) sb.Append("<th>").Append(E(h)).Append("</th>");
             sb.Append("</tr></thead><tbody>");
             foreach (var r in suspectRows)
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
                   .Append(r.PhpHintScore).Append("</td><td>").Append(E(string.Join("; ", r.PhpHints))).Append("</td><td>").Append(E(r.WafSummary.Length > 0 ? r.WafSummary : "–")).Append("</td></tr>");
             sb.Append("</tbody></table>");
         }
@@ -196,7 +196,7 @@ public static class CompactReportGenerator
                 var ports = g.Where(r => r.HttpReachable).Select(r => (r.Port, r.Scheme)).Distinct().OrderBy(p => p.Port).Select(p => p.Port + (p.Scheme.Length > 0 ? " " + p.Scheme : "")).ToList();
                 var hostApps = g.Where(r => r.Application.Length > 0).Select(r => r.Application + (r.ApplicationVersion.Length > 0 ? " " + r.ApplicationVersion : "")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 string alive = g.Select(r => r.AliveMethod).FirstOrDefault(m => m.Length > 0) ?? (g.Any(r => r.HttpReachable) ? "HTTP" : g.Any(r => r.Tls is { Handshake: true }) ? "TLS" : "–");
-                sb.Append("<tr><td>").Append(E(g.Key)).Append("</td><td>").Append(E(names.Count > 0 ? string.Join(", ", names) : "–")).Append("</td><td>").Append(E(ports.Count > 0 ? string.Join(", ", ports) : "–")).Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(g.Key)).Append("</td><td>").Append(NamesHtml(names)).Append("</td><td>").Append(E(ports.Count > 0 ? string.Join(", ", ports) : "–")).Append("</td><td>")
                   .Append(Badge(Worst(g.Select(r => r.Verdict)))).Append("</td><td>").Append(E(hostApps.Count > 0 ? string.Join(", ", hostApps) : "–")).Append("</td><td>").Append(E(alive)).Append("</td></tr>");
             }
             sb.Append("</tbody></table>");
@@ -214,7 +214,7 @@ public static class CompactReportGenerator
             foreach (var h in new[] { L.T("Bersaglio"), L.T("Nomi"), L.T("Porta"), L.T("Indice"), L.T("Voci") }) sb.Append("<th>").Append(E(h)).Append("</th>");
             sb.Append("</tr></thead><tbody>");
             foreach (var r in talkative)
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
                   .Append(r.VerbosityScore).Append("/5</td><td>").Append(E(string.Join("; ", r.VerbosityItems))).Append("</td></tr>");
             sb.Append("</tbody></table>");
         }
@@ -231,7 +231,7 @@ public static class CompactReportGenerator
             foreach (var h in new[] { L.T("Bersaglio"), L.T("Porta"), L.T("Nomi"), L.T("Stato del certificato") }) sb.Append("<th>").Append(E(h)).Append("</th>");
             sb.Append("</tr></thead><tbody>");
             foreach (var r in certs)
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(E(NamesCell(r))).Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>")
                   .Append(E(r.CertificateStatus)).Append("</td></tr>");
             sb.Append("</tbody></table>");
         }
@@ -308,7 +308,7 @@ public static class CompactReportGenerator
     public const int MaxExcelRowsInHtml = 300;
 
     /// <summary>Nome del file CSV dell'elenco per Excel (v1.8).</summary>
-    public static string ExcelCsvName(string appVersion) => $"elenco_v{appVersion}.csv";
+    public static string ExcelCsvName(string appVersion, string suffix = "") => $"elenco_v{appVersion}{suffix}.csv";
 
     /// <summary>
     /// Elenco per Excel (v1.8): servizi in evidenza (verdetti da tenere in considerazione + PHP forse), un solo nome per riga (quello della riga,
@@ -337,7 +337,7 @@ public static class CompactReportGenerator
     /// <summary>Elenco per Excel come CSV (stesso dialetto dei CSV di sessione).</summary>
     public static string ExcelCsv(ScanSession s, Output.CsvFormat csv)
     {
-        var (header, rows) = ExcelRows(s);
+        var (header, rows) = ExcelRows(s);   // elenco per Excel: CSV
         var sb = new StringBuilder();
         sb.Append(string.Join(csv.Sep, header.Select(csv.Escape))).Append("\r\n");
         foreach (var row in rows) sb.Append(string.Join(csv.Sep, row.Select(csv.Escape))).Append("\r\n");
@@ -348,6 +348,13 @@ public static class CompactReportGenerator
     {
         var names = HostLists.Names([r]);
         return names.Count > 0 ? string.Join(", ", names) : "–";
+    }
+
+    /// <summary>v1.10: cella HTML con un nome per riga, senza spezzare i nomi (la v1.8 limitava la larghezza e spezzava ovunque: colonna illeggibile).</summary>
+    public static string NamesHtml(IEnumerable<string> names)
+    {
+        var list = names.ToList();
+        return list.Count > 0 ? string.Join("<br>", list.Select(E)) : "–";
     }
 
     private static string PhpCell(ScanResult r)
@@ -417,7 +424,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px
 table.kv{width:auto;margin:6px 0 10px}table.kv th{width:180px;white-space:nowrap}
 .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px}.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:var(--bg);min-width:150px}
 .kpi .n{display:block;font-size:22px;font-weight:600}.kpi .l{display:block;font-size:12px;color:var(--muted)}.kpi .h{display:block;font-size:11px;color:var(--muted)}
-table.att td:nth-child(1),table.att td:nth-child(3),table.att td:nth-child(4),table.att td:nth-child(5),table.att td:nth-child(6),table.att td:nth-child(7),table.att td:nth-child(10),table.att td:nth-child(13),table.xl td,table.xl th{white-space:nowrap}table.att td:nth-child(2){max-width:280px;word-break:break-all}table.att td.why{min-width:260px}table.att td:nth-child(9){min-width:140px}table.xl{font-size:12px}
+table.att td:nth-child(1),table.att td:nth-child(3),table.att td:nth-child(4),table.att td:nth-child(5),table.att td:nth-child(6),table.att td:nth-child(7),table.att td:nth-child(10),table.att td:nth-child(13),table.xl td,table.xl th{white-space:nowrap}table.att td:nth-child(2),table.hosts td:nth-child(2),table.sus td:nth-child(2),table.loq td:nth-child(2),table.exp td:nth-child(2){white-space:nowrap}table.att td.why{min-width:260px}table.att td:nth-child(9){min-width:140px}table.xl{font-size:12px}
 .kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}.kpi.maybe{background:#f3eeff;border-color:#c4b5fd}.kpi.maybe .n{color:#6d28d9}.note.maybe{background:#f3eeff;border-left:4px solid #7c3aed;padding:6px 10px;color:var(--fg)}table.sus tbody tr{background:#f3eeff}
 .b{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}.b.bad{background:var(--bad-soft);color:var(--bad)}.b.warn{background:var(--warn-soft);color:var(--warn)}.b.ok{background:var(--ok-soft);color:var(--ok)}.b.muted{background:var(--soft);color:var(--muted)}
 table.att td:nth-child(-n+2),table.exp td:nth-child(-n+2),table.hosts td:nth-child(-n+2),table.sus td:nth-child(-n+2),table.loq td:nth-child(-n+2),table.app td:nth-child(4){font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}td.why{font-size:12px;color:var(--muted)}

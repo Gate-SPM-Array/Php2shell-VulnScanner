@@ -2,6 +2,24 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.10 — 2026-10-28
+
+Via del maintainer dopo il giro notturno della v1.9 sulla /20 (6 thread, 5 cicli) e le note sul report. Nessuna richiesta in più al bersaglio: una query DNS per nome da CT.
+
+### Corretto
+- **Rumore dei nomi da Certificate Transparency.** Nella /20 l'80% del tempo dei thread andava alla seconda passata sui nomi (ciclo 1: 3,0 h sulle righe per IP, 11,7 h su 1715 servizi per nome) e il 77-80% di quei nomi ripiegava su "stesso contenuto": nomi del dominio presi da crt.sh che non vivono su quell'IP (353 host arrivavano al tetto di 10). Ora i nomi da CT entrano nei nomi scoperti **solo se risolvono (A/AAAA, resolver configurato) sull'IP in esame**; se risolvono su un altro IP della lista bersagli vengono dirottati a quell'host (se non è già stato analizzato); gli altri restano tracciati nella scheda (test `ADV-HOST-CT-DNS`, campo `CtNamesElsewhere`), non riscansionati. Casella "Nomi da Certificate Transparency solo se risolvono sull'IP in esame", `--no-ct-dns`.
+- **Seconda chance**: corsie fisse a 16 (con 6 thread la v1.9 ne aveva 4: 35 min per ciclo su 3750 host); dal ciclo 2 in poi si riprovano solo gli host visti attivi almeno una volta nel loop (il primo ciclo li prova tutti). Nel log il numero di host esclusi.
+- **Connessione chiusa dal perimetro**: ~37 host per ciclo, sempre gli stessi, chiudevano la connessione con RST durante il TLS sulla 443 e finivano in "Non raggiungibile: nessuna risposta HTTP". Ora la motivazione dice "connessione chiusa dal perimetro durante il TLS (probabile IPS: l'host esiste)" e la scheda ha il test `L1-RESET`.
+- **Colonna Nomi del report compatto**: la v1.8 le aveva dato un limite di larghezza con spezzatura ovunque e il browser la schiacciava a quattro caratteri. Ora un nome per riga, mai spezzato (tabelle "Da tenere in considerazione", "Host attivi", "PHP sospetto", "Loquacità", "Esposizioni").
+- **Rigenerazione del report**: `elenco_vX.Y.csv` e `results_cN.csv` venivano sovrascritti; ora prendono lo stesso suffisso `_2`, `_3` dei report, e il log dice "nuova copia N: i report e i CSV precedenti restano".
+
+### Novità
+- **Configurazione su file**: pulsanti **Salva config…** / **Carica config…** (JSON con tutti i parametri; si può caricare anche il `session.json` di una sessione) e da console `--config <file>` (le opzioni esplicite vincono) e `--save-config <file>` (scrive e termina senza scansione).
+- **Pacchetto per analisi**: in "Esporta log…" la voce "Pacchetto per analisi senza corpi (*.zip)" e da console `--analysis-bundle`: zip della cartella di sessione con `results.json` e `results.jsonl` senza i corpi delle risposte (al posto del corpo: lunghezza e SHA-256), più log, CSV, report, file degli host; `samples.json` escluso. Gli zip di sessione in debug pesavano 60-700 MB; così stanno in pochi MB e passano i limiti di upload.
+
+### Test
+- 398 test (+8, `V110Tests`): sorte dei nomi da CT (qui, dirottato, già analizzato, altrove), seconda chance dal ciclo 2 solo per host visti attivi, reset dal perimetro, colonna Nomi, suffissi sui CSV rigenerati, configurazione da file e da `session.json` con opzioni esplicite vincenti e `--save-config`, pacchetto per analisi (corpi rimossi, JSON valido, righe del jsonl conservate, samples escluso).
+
 ## v1.9 — 2026-10-24
 
 Via del maintainer dopo il giro della v1.8 sulla /22 (2 cicli): la seconda chance recuperava 3-4 host su 914 ma costava 11,5 min per ciclo su 27 (4 corsie × timeout 3 s), e tutta a fine ciclo. Versione per il giro notturno sulla /20 e sulla /22.

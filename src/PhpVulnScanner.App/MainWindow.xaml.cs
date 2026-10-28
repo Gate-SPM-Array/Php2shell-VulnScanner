@@ -124,6 +124,7 @@ public partial class MainWindow : Window
         ChkFoldNames.IsChecked = c.FoldSameContentNames;
         ChkFoldOutcome.IsChecked = c.FoldSameOutcomeNames;
         ChkPrecheck.IsChecked = c.PortPrecheck;
+        ChkCtDns.IsChecked = c.CtDnsCheck;
         TxtBudget.Text = (c.ServiceBudgetMs / 1000).ToString(C);
         TxtInventory.Text = c.InventoryPath;
         ChkPureVersion.IsChecked = c.PureVersionIsVulnerable;
@@ -185,6 +186,7 @@ public partial class MainWindow : Window
             FoldSameContentNames = ChkFoldNames.IsChecked == true,
             FoldSameOutcomeNames = ChkFoldOutcome.IsChecked == true,
             PortPrecheck = ChkPrecheck.IsChecked == true,
+            CtDnsCheck = ChkCtDns.IsChecked == true,
             ServiceBudgetMs = Math.Max(0, Int(TxtBudget, 120)) * 1000,
             InventoryPath = TxtInventory.Text.Trim(),
             PureVersionIsVulnerable = ChkPureVersion.IsChecked == true,
@@ -782,7 +784,7 @@ public partial class MainWindow : Window
     {
         var dlg = new SaveFileDialog
         {
-            Filter = L.T("Log esteso (*.txt)|*.txt|Risultati CSV (*.csv)|*.csv|Risultati JSON (*.json)|*.json|Test eseguiti CSV (*.csv)|*.csv|Host attivi, un IP per riga (*.txt)|*.txt|Host con HTTP, un IP per riga (*.txt)|*.txt|Nomi scoperti (*.txt)|*.txt"),
+            Filter = L.T("Log esteso (*.txt)|*.txt|Risultati CSV (*.csv)|*.csv|Risultati JSON (*.json)|*.json|Test eseguiti CSV (*.csv)|*.csv|Host attivi, un IP per riga (*.txt)|*.txt|Host con HTTP, un IP per riga (*.txt)|*.txt|Nomi scoperti (*.txt)|*.txt|Pacchetto per analisi senza corpi (*.zip)|*.zip"),
             FileName = $"phpscan_{DateTime.Now:yyyyMMdd_HHmm}_v{AppPaths.Version}",
             InitialDirectory = _session?.Folder is { Length: > 0 } f && Directory.Exists(f) ? f : TxtOutput.Text,
         };
@@ -818,6 +820,11 @@ public partial class MainWindow : Window
                     if (_session == null) throw new InvalidOperationException(L.T("Nessuna sessione da esportare."));
                     File.WriteAllText(dlg.FileName, HostLists.DiscoveredNamesText(_session.Results), new UTF8Encoding(false));
                     break;
+                case 8:
+                    // v1.10: zip della cartella di sessione senza i corpi delle risposte (sotto i limiti di upload)
+                    if (_session == null || !Directory.Exists(_session.Folder)) throw new InvalidOperationException(L.T("Nessuna sessione da esportare."));
+                    AnalysisBundle.Build(_session.Folder, dlg.FileName);
+                    break;
             }
             AppendLog(L.F("Esportato: {0}", dlg.FileName));
         }
@@ -832,10 +839,39 @@ public partial class MainWindow : Window
             string folder = Directory.Exists(_session.Folder) ? _session.Folder : TxtOutput.Text;
             Directory.CreateDirectory(folder);
             var path = ReportGenerator.Generate(_session, folder);
-            AppendLog(L.F("Report HTML: {0}", path));
+            string suffix = ReportGenerator.Suffix(path);
+            AppendLog(suffix.Length > 0 ? L.F("Report HTML: {0} (nuova copia {1}: i report e i CSV precedenti restano)", path, suffix.TrimStart('_')) : L.F("Report HTML: {0}", path));
             OpenPath(path);
         }
         catch (Exception ex) { Error(L.F("Report non generato: {0}", ex.Message)); }
+    }
+
+    // v1.10: configurazione su file (stesso JSON di session.json → Config), riusabile da --config
+    private void BtnSaveConfig_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SaveFileDialog { Filter = L.T("Configurazione (*.json)|*.json"), FileName = $"phpscan_config_v{AppPaths.Version}.json", InitialDirectory = TxtOutput.Text };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            File.WriteAllText(dlg.FileName, System.Text.Json.JsonSerializer.Serialize(ReadConfig(), ScanConfig.JsonOptions), new UTF8Encoding(false));
+            AppendLog(L.F("Configurazione salvata: {0}", dlg.FileName));
+        }
+        catch (Exception ex) { Error(L.F("Configurazione non salvata: {0}", ex.Message)); }
+    }
+
+    private void BtnLoadConfig_Click(object sender, RoutedEventArgs e)
+    {
+        if (_running) return;
+        var dlg = new OpenFileDialog { Filter = L.T("Configurazione o session.json (*.json)|*.json"), InitialDirectory = TxtOutput.Text };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            var c = PhpVulnScanner.Core.Cli.CliRunner.LoadConfigFile(dlg.FileName);
+            if (string.IsNullOrWhiteSpace(c.OutputFolder)) c.OutputFolder = TxtOutput.Text;
+            LoadConfig(c);
+            AppendLog(L.F("Configurazione caricata: {0}", dlg.FileName));
+        }
+        catch (Exception ex) { Error(L.F("Configurazione non caricata: {0}", ex.Message)); }
     }
 
     private void BtnOpenSession_Click(object sender, RoutedEventArgs e)

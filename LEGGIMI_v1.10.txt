@@ -1,23 +1,28 @@
-PHP Vuln Scanner v1.9 (2026-10-24) - programma portable per Windows x64
+PHP Vuln Scanner v1.10 (2026-10-24) - programma portable per Windows x64
 
 1. Estrarre la cartella dove si preferisce (anche su chiavetta). Tenere insieme PhpVulnScanner.exe, lang\ e data\.
 2. Avviare PhpVulnScanner.exe (nessuna installazione, nessun runtime .NET da installare).
 3. Scrivere i bersagli (IP, reti CIDR, intervalli, nomi), controllare le porte (443); tutto cio' che riguarda lo strato PHP
    (percorsi, livelli, superficie, nomi, test aggiuntivi) sta nella sezione "Detection PHP" (pulsanti Nessuno / Predefiniti /
    Massima detection); premere "Avvia scansione".
-4. Alla fine: report compatto (pulsante "Report HTML") e report completo nella cartella Sessioni\, file host_attivi_v1.9.txt
+4. Alla fine: report compatto (pulsante "Report HTML") e report completo nella cartella Sessioni\, file host_attivi_v1.10.txt
    per OpenVAS, esportazione log/CSV/JSON/host con "Esporta log...".
-5. Guida completa: tasto F1 (Guida_PhpVulnScanner_v1.9.html, in inglese Guide_...).
+5. Guida completa: tasto F1 (Guida_PhpVulnScanner_v1.10.html, in inglese Guide_...).
 6. Riga di comando senza finestra: PhpVulnScanner.exe --scan bersagli.txt [opzioni]; --help per l'elenco; codici di uscita 0/1/2/3/4.
    Esempi: PhpVulnScanner.exe --scan 192.0.2.0/20 --ports 443,80,8080,8085,8443 --cycles 5 --cycle-pause 300 --random --delay 50-250 --rate 20 --threads 8 --advanced all
            PhpVulnScanner.exe --merge D:\scansioni\sessioneA D:\scansioni\sessioneB --out D:\scansioni
+
+Novita' della v1.10: i nomi da Certificate Transparency entrano solo se risolvono sull'IP in esame (verifica DNS: via il
+rumore e le ore perse sui nomi ospitati altrove); seconda chance su 16 corsie e dal ciclo 2 solo per gli host visti attivi;
+esito "connessione chiusa dal perimetro" per gli host dietro IPS; colonna Nomi un nome per riga; CSV rigenerati con suffisso;
+Salva/Carica config (anche --config / --save-config); pacchetto per analisi senza corpi (Esporta log... / --analysis-bundle).
 
 Novita' della v1.9: seconda chance dell'alive check piu' leggera (meta' dei thread, timeout 1,5x) e anticipata (parte appena
 la coda degli host si svuota): sulla /22 costava 11,5 minuti per ciclo, ora pochi minuti, stessi host recuperati.
 
 Novita' della v1.8: tetto separato per l'alive check ("Host in parallelo", predefinito 8) e seconda chance a fine ciclo per gli
 host non confermati; coda a priorita' (nomi prima degli host nuovi); consolidamento campo per campo tra i cicli; "PHP forse" in OR
-nei filtri; elenco per Excel in fondo al report compatto e in elenco_v1.9.csv; Certificate Transparency sul sottodominio.
+nei filtri; elenco per Excel in fondo al report compatto e in elenco_v1.10.csv; Certificate Transparency sul sottodominio.
 
 Novita' della v1.7: seconda passata sui nomi scoperti in parallelo (prima in sequenza per host: la coda di ogni ciclo era un
 thread solo); righe per IP in tabella prima dei nomi; catch-all 5xx anche quando "/" risponde con un redirect; "PHP forse" in

@@ -133,6 +133,14 @@ public sealed class ScanEngine
         /// <summary>Coda della seconda chance (v1.9): riempita appena la coda degli host si svuota, servita dai lavoratori liberi mentre finiscono i nomi.</summary>
         public readonly ConcurrentQueue<ScanTarget> RetryQueue = new();
         public int RetryStarted, RetryCount, RetryAliveBefore;
+        /// <summary>v1.10: numero del ciclo e host visti attivi almeno una volta nel loop (dal ciclo 2 la seconda chance riguarda solo questi).</summary>
+        public int CycleNo = 1;
+        public ConcurrentDictionary<string, byte> EverAlive = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>v1.10: host della lista bersagli (per dirottare i nomi da CT che risolvono su un altro IP del perimetro) e nomi dirottati in attesa.</summary>
+        public HashSet<string> TargetHosts = new(StringComparer.OrdinalIgnoreCase);
+        public readonly ConcurrentDictionary<string, ConcurrentBag<string>> ExtraNames = new(StringComparer.OrdinalIgnoreCase);
+        public readonly ConcurrentDictionary<string, byte> DoneHosts = new(StringComparer.OrdinalIgnoreCase);
+        public readonly ConcurrentDictionary<string, Task<IReadOnlyList<string>>> DnsCache = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Host saltati perché non confermati attivi (v1.8): candidati alla seconda chance a fine ciclo.</summary>
         public readonly ConcurrentBag<(ScanTarget Target, List<int> Ports)> NotAlive = [];
         public int Total, Done, HostsDone;
@@ -154,6 +162,7 @@ public sealed class ScanEngine
         VerdictEngine.PureVersionIsVulnerable = cfg.PureVersionIsVulnerable;
         // unione di tutte le osservazioni del loop per i file degli host (host_attivi, host_http, nomi_scoperti): vince il più informativo
         var cumulative = new ConcurrentDictionary<string, ScanResult>(StringComparer.OrdinalIgnoreCase);
+        var everAlive = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);   // v1.10
         string? firstFolder = null;
         var consolidated = new ConcurrentDictionary<string, ScanResult>(StringComparer.OrdinalIgnoreCase);
         var estimator = new ScanEstimator { Cycles = cycles, CyclePauseSec = cfg.CyclePauseSec };
@@ -233,6 +242,7 @@ public sealed class ScanEngine
                 var passResults = new ConcurrentDictionary<string, ScanResult>(StringComparer.OrdinalIgnoreCase);
                 var origEmit = run.Emit;
                 run.Emit = r => { passResults[r.Key] = r; origEmit(r); };
+                run.CycleNo = cycle; run.EverAlive = everAlive;
                 run.Replace = r =>
                 {
                     // v1.8: riemissione nello stesso ciclo (seconda chance dell'alive check): il consolidato fonde per chiave sostituendo la riga di storia,
@@ -322,6 +332,7 @@ public sealed class ScanEngine
     {
         var cfg = run.Cfg;
         var hosts = run.Targets.GroupBy(t => t.Host, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
+        run.TargetHosts = new HashSet<string>(hosts.Select(h => h.Host), StringComparer.OrdinalIgnoreCase);
         var ports = run.Ports.ToList();
         if (cfg.RandomOrder)
         {
@@ -347,7 +358,8 @@ public sealed class ScanEngine
             bool retryOn = cfg.Alive.Enabled && cfg.Alive.SkipIfNotAlive && cfg.Alive.Retry;
             // v1.9: corsie della seconda chance = metà dei thread (minimo 4, mai più dei thread); timeout 1,5×. Sulla /22 con 4 corsie e timeout 2×
             // costava 11,5 min per ciclo (914 host) per 3-4 host recuperati.
-            run.RetrySem = retryOn ? new SemaphoreSlim(Math.Max(1, Math.Min(cfg.Threads, Math.Max(4, cfg.Threads / 2)))) : null;
+            // v1.10: corsie fisse (RetryLanes): l'alive check della seconda chance è solo ICMP + TCP, e con 6 thread le 4 corsie della v1.9 costavano 35 min per ciclo sulla /20
+            run.RetrySem = retryOn ? new SemaphoreSlim(RetryLanes) : null;
             await RunWorkersAsync(run, cfg.Threads, hostQueue, ports, estimator).ConfigureAwait(false);
             // v1.8/v1.9: seconda chance per gli host non confermati attivi (ICMP + TCP sulle porte della scansione, timeout 1,5×): un ciclo "tirato"
             // non perde host per sempre; chi risponde viene scansionato per intero e la sua riga sostituisce quella "non raggiungibile".
@@ -476,11 +488,20 @@ public sealed class ScanEngine
         await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
-    /// <summary>Seconda chance (v1.9): sposta gli host non confermati raccolti finora nella coda della seconda chance (lavoro in più per i lavoratori).</summary>
+    /// <summary>Corsie dell'alive check della seconda chance (v1.10): indipendenti dai thread HTTP.</summary>
+    public const int RetryLanes = 16;
+
+    /// <summary>Seconda chance (v1.9): sposta gli host non confermati raccolti finora nella coda della seconda chance (lavoro in più per i lavoratori). v1.10: dal ciclo 2 solo gli host visti attivi almeno una volta nel loop.</summary>
     private static void StartRetry(Run run, List<int> ports)
     {
         var batch = new List<ScanTarget>();
-        while (run.NotAlive.TryTake(out var x)) batch.Add(x.Target);
+        int skipped = 0;
+        while (run.NotAlive.TryTake(out var x))
+        {
+            if (run.CycleNo > 1 && !run.EverAlive.ContainsKey(x.Target.Host)) { skipped++; continue; }
+            batch.Add(x.Target);
+        }
+        if (skipped > 0 && run.RetryCount == 0) run.Log(L.F("Seconda chance: {0} host mai visti attivi nel loop non vengono riprovati (dal ciclo 2 si riprovano solo gli host attivi almeno una volta)", skipped));
         if (batch.Count == 0) return;
         if (run.RetryCount == 0) { run.RetryAliveBefore = run.AliveHosts.Count; run.RetryStarted = 1; }
         Interlocked.Add(ref run.RetryCount, batch.Count);
@@ -494,7 +515,7 @@ public sealed class ScanEngine
     {
         var cfg = run.Cfg;
         var info = await ProbeHostAsync(run, target, retry).ConfigureAwait(false);
-        if (info.Alive?.State == AliveState.Alive) run.AliveHosts.TryAdd(target.Host, 0);
+        if (info.Alive?.State == AliveState.Alive) { run.AliveHosts.TryAdd(target.Host, 0); run.EverAlive.TryAdd(target.Host, 0); }
 
         bool skipAll = info.Error != null || (info.Alive != null && info.Alive.State != AliveState.Alive && cfg.Alive.SkipIfNotAlive);
         if (retry && skipAll) return;   // seconda chance fallita: la riga "non raggiungibile" resta quella già emessa
@@ -533,6 +554,17 @@ public sealed class ScanEngine
             }
             // i test a livello di host possono aggiungere evidenze di PHP (php-fpm esposto): verdetto e priorità ricalcolati
             foreach (var r in results) VerdictEngine.Apply(r);
+        }
+
+        // v1.10: i nomi da Certificate Transparency sono gli unici che l'IP non ha detto da solo: entrano solo se risolvono su questo IP
+        if (cfg.CtDnsCheck && hostPivot != null && hostPivot.CtNames.Count > 0)
+            await CheckCtNamesAsync(run, target, results, hostPivot).ConfigureAwait(false);
+        // v1.10: nomi dirottati qui da altri host (risolvono su questo IP)
+        if (run.ExtraNames.TryRemove(target.Host, out var routed) && results.Count > 0)
+        {
+            var list = routed.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (var r in results) foreach (var n in list) if (!r.DiscoveredNames.Contains(n, StringComparer.OrdinalIgnoreCase)) r.DiscoveredNames.Add(n);
+            results[0].Add("NAMES-ROUTED", L.T("Nomi dirottati da altri host"), TestOutcome.Info, L.F("{0} nomi da Certificate Transparency di altri host risolvono su questo IP: {1}", list.Count, string.Join(", ", list.Take(10)) + (list.Count > 10 ? " …" : "")));
         }
 
         // seconda passata sui nomi scoperti (stessi IP, Host e SNI = nome), solo dove HTTP ha risposto
@@ -632,10 +664,66 @@ public sealed class ScanEngine
         }
         foreach (var r in results) Complete(run, r, retry);
         foreach (var r in extra) Complete(run, r, false);
+        run.DoneHosts.TryAdd(target.Host, 0);
         if (!retry) Interlocked.Increment(ref run.HostsDone);   // l'host della seconda chance era già contato
     }
 
     /// <summary>Copia su <paramref name="r"/> i risultati dei test a livello di host (FastCGI 9000, esposizioni sulla 9000, test ADV-HOST) ottenuti sul pivot.</summary>
+    /// <summary>
+    /// Verifica DNS dei nomi da Certificate Transparency (v1.10). Sulla /20 l'80% del tempo dei thread andava alla seconda passata sui nomi, e il
+    /// 77-80% di quei nomi ripiegava su "stesso contenuto": nomi del dominio che non vivono su quell'IP. Un nome resta tra i nomi scoperti solo se
+    /// risolve (A/AAAA, resolver configurato) sull'IP in esame; se risolve su un altro IP della lista bersagli viene dirottato a quell'host
+    /// (<see cref="Run.ExtraNames"/>, se non è già stato analizzato); altrimenti viene solo tracciato (<see cref="ScanResult.CtNamesElsewhere"/>).
+    /// Una query DNS per nome, con cache per tutta la scansione; nessuna richiesta in più al bersaglio.
+    /// </summary>
+    private static async Task CheckCtNamesAsync(Run run, ScanTarget target, List<ScanResult> results, ScanResult pivot)
+    {
+        var cfg = run.Cfg;
+        var ips = new HashSet<string>(results.SelectMany(r => r.ResolvedIps).Append(target.Host), StringComparer.OrdinalIgnoreCase);
+        int here = 0, routed = 0, elsewhere = 0, alreadyDone = 0;
+        var elsewhereList = new List<string>();
+        foreach (var name in pivot.CtNames.ToList())
+        {
+            IReadOnlyList<string> addrs;
+            try
+            {
+                addrs = await run.DnsCache.GetOrAdd(name, async n =>
+                {
+                    try { var res = await Resolver.ResolveAsync(n, run.ResolverIp, true, cfg.ConnectTimeoutMs, run.Ct).ConfigureAwait(false); return (IReadOnlyList<string>)res.Addresses.Select(a => a.ToString()).ToList(); }
+                    catch (OperationCanceledException) { throw; }
+                    catch { return (IReadOnlyList<string>)[]; }
+                }).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { addrs = []; }
+            var (fate, other) = CtNameFate(addrs, ips, run.TargetHosts, run.DoneHosts.Keys);
+            if (fate == CtFate.Here) { here++; continue; }
+            // non vive qui: via dai nomi scoperti di tutte le righe dell'host
+            foreach (var r in results) r.DiscoveredNames.RemoveAll(x => x.Equals(name, StringComparison.OrdinalIgnoreCase));
+            switch (fate)
+            {
+                case CtFate.Route: run.ExtraNames.GetOrAdd(other!, _ => []).Add(name); routed++; elsewhereList.Add(name + " → " + other); break;
+                case CtFate.Done: alreadyDone++; run.Log(L.F("{0}: il nome {1} (CT) risolve su {2}, già analizzato: non riscansionato", target.Host, name, other)); elsewhereList.Add(name + " → " + other); break;
+                default: elsewhere++; elsewhereList.Add(name + " → –"); break;
+            }
+        }
+        foreach (var r in results) r.CtNamesElsewhere = [.. elsewhereList];
+        string detail = L.F("{0} nomi da CT: {1} risolvono su questo IP, {2} dirottati ad altri host del perimetro, {3} su host già analizzati, {4} fuori dal perimetro o non risolti (tracciati nella scheda, non riscansionati)", pivot.CtNames.Count, here, routed, alreadyDone, elsewhere);
+        foreach (var r in results) r.Add("ADV-HOST-CT-DNS", L.T("Verifica DNS dei nomi da CT"), TestOutcome.Info, detail);
+        run.Log($"{target.Host}: {detail}");
+    }
+
+    public enum CtFate { Here, Route, Done, Elsewhere }
+
+    /// <summary>Sorte di un nome da CT (v1.10) dati i suoi indirizzi: vive qui, va dirottato a un altro host della lista, host già analizzato, fuori o non risolto.</summary>
+    public static (CtFate Fate, string? Other) CtNameFate(IReadOnlyList<string> addrs, ISet<string> hereIps, ISet<string> targetHosts, IEnumerable<string> doneHosts)
+    {
+        if (addrs.Any(hereIps.Contains)) return (CtFate.Here, null);
+        var other = addrs.FirstOrDefault(targetHosts.Contains);
+        if (other == null) return (CtFate.Elsewhere, null);
+        return doneHosts.Contains(other, StringComparer.OrdinalIgnoreCase) ? (CtFate.Done, other) : (CtFate.Route, other);
+    }
+
     private static void CopyHostLevel(ScanResult pivot, ScanResult r)
     {
         r.FastCgiExposed = pivot.FastCgiExposed; r.FastCgiDetail = pivot.FastCgiDetail;
@@ -844,7 +932,11 @@ public sealed class ScanEngine
                         r.PhaseMs["waf"] = swWaf.Elapsed.TotalMilliseconds;
                     }
                 }
-                else run.Log(L.F("{0}: nessuna risposta HTTP ({1})", tag, r.Error));
+                else
+                {
+                    run.Log(L.F("{0}: nessuna risposta HTTP ({1})", tag, r.Error));
+                    if (VerdictEngine.IsPerimeterReset(r)) r.Add("L1-RESET", L.T("Connessione chiusa dal perimetro"), TestOutcome.Warn, L.T("porta aperta ma connessione chiusa (RST) durante il TLS o la prima richiesta: tipico di un IPS che taglia la sorgente; l'host esiste"));   // v1.10
+                }
             }
             if (cfg.DiscoverNames)
             {

@@ -192,6 +192,10 @@ public sealed class ScanResult
     public string InventoryNote { get; set; } = "";
     /// <summary>Sonde facoltative saltate per budget di tempo del servizio (ScanConfig.ServiceBudgetMs): elenco dei nomi, vuoto se nessuna.</summary>
     public List<string> SkippedForBudget { get; set; } = [];
+    /// <summary>v1.10: nomi arrivati da Certificate Transparency (sottoinsieme di <see cref="DiscoveredNames"/> prima della verifica DNS).</summary>
+    public List<string> CtNames { get; set; } = [];
+    /// <summary>v1.10: nomi da CT che non risolvono su questo IP ("nome → ip" quando risolvono su un altro IP del perimetro, "nome → –" se fuori o non risolti): tracciati, non riscansionati.</summary>
+    public List<string> CtNamesElsewhere { get; set; } = [];
     /// <summary>Versione dell'applicazione confrontata con l'inventario NCSC-NL ("6.4.2 < corretto in 6.4.3"), "" se non confrontabile.</summary>
     public string AppVersionCheck { get; set; } = "";
     /// <summary>Stato VEX NCSC-NL delle altre tecnologie riconosciute, "Nome: stato".</summary>
