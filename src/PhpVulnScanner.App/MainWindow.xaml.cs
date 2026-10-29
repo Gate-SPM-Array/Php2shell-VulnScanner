@@ -127,6 +127,8 @@ public partial class MainWindow : Window
         ChkCtDns.IsChecked = c.CtDnsCheck;
         TxtBudget.Text = (c.ServiceBudgetMs / 1000).ToString(C);
         TxtInventory.Text = c.InventoryPath;
+        TxtKnownHosts.Text = c.KnownHostsPath;
+        TxtSweepLanes.Text = c.Alive.SweepLanes.ToString(C);
         ChkPureVersion.IsChecked = c.PureVersionIsVulnerable;
         ChkAlive_Changed(this, new RoutedEventArgs());
         ChkNames_Changed(this, new RoutedEventArgs());
@@ -189,6 +191,7 @@ public partial class MainWindow : Window
             CtDnsCheck = ChkCtDns.IsChecked == true,
             ServiceBudgetMs = Math.Max(0, Int(TxtBudget, 120)) * 1000,
             InventoryPath = TxtInventory.Text.Trim(),
+            KnownHostsPath = TxtKnownHosts.Text.Trim(),
             PureVersionIsVulnerable = ChkPureVersion.IsChecked == true,
         };
         if (c.DelayMaxMs < c.DelayMinMs) _configWarnings.Add(L.F("pausa massima {0} ms inferiore alla minima {1} ms: uso la minima", c.DelayMaxMs, c.DelayMinMs));
@@ -201,6 +204,7 @@ public partial class MainWindow : Window
         c.Alive.TimeoutMs = Int(TxtAliveTimeout, 1500);
         c.Alive.Parallel = Int(TxtAliveParallel, 8);
         c.Alive.Retry = ChkAliveRetry.IsChecked == true;
+        c.Alive.SweepLanes = Int(TxtSweepLanes, 4);
         c.Alive.SkipIfNotAlive = ChkSkipNotAlive.IsChecked == true;
         c.Clamp();
         return c;
@@ -955,6 +959,12 @@ public partial class MainWindow : Window
     {
         var dlg = new OpenFileDialog { Filter = "CSV, JSON (*.csv;*.json;*.txt)|*.csv;*.json;*.txt|" + L.T("Tutti i file") + "|*.*", Title = L.T("Scegli il file di inventario (CSV o JSON)") };
         if (dlg.ShowDialog(this) == true) TxtInventory.Text = dlg.FileName;
+    }
+
+    private void BtnBrowseKnownHosts_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Filter = "TXT (*.txt)|*.txt|" + L.T("Tutti i file") + "|*.*", Title = L.T("Scegli il file degli host noti (un IP per riga)") };
+        if (dlg.ShowDialog(this) == true) TxtKnownHosts.Text = dlg.FileName;
     }
 
     private void BtnBrowseFolder_Click(object sender, RoutedEventArgs e)

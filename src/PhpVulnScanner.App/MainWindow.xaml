@@ -99,7 +99,8 @@
                                 <TextBox x:Name="TxtAliveTimeout" Grid.Row="3" Grid.Column="1"/>
                                 <TextBlock Grid.Row="4" Style="{StaticResource Lbl}" l:Loc.Text="Host in parallelo"/>
                                 <TextBox x:Name="TxtAliveParallel" Grid.Row="4" Grid.Column="1" l:Loc.Tip="Host in alive check contemporaneamente (predefinito 8; 0 = quanti i thread). Ogni host apre insieme ICMP, TCP e UDP: con molti thread il burst iniziale faceva andare in timeout anche gli host attivi. Indipendente dai thread HTTP"/>
-                                <CheckBox x:Name="ChkAliveRetry" Grid.Row="5" Grid.ColumnSpan="2" l:Loc.Text="Seconda chance a fine ciclo per i non confermati" IsChecked="True" l:Loc.Tip="Appena la coda degli host si svuota, gli host non confermati attivi vengono riprovati una volta dai thread liberi (corsie = metà dei thread, minimo 4; ICMP + TCP sulle porte della scansione, timeout 1,5×). Chi risponde viene scansionato per intero e la riga «Non raggiungibile» viene sostituita"/>
+                                <CheckBox x:Name="ChkAliveRetry" Grid.Row="5" Grid.ColumnSpan="2" l:Loc.Text="Sweeper continuo: riprova i non confermati per tutto il ciclo, corsie:" IsChecked="True" l:Loc.Tip="Un task a parte riprova a ritmo lento, per tutta la durata del ciclo, gli host non confermati attivi (ICMP + TCP sulle porte della scansione, timeout 1,5×); chi risponde entra subito nel ciclo e la riga «Non raggiungibile» viene sostituita. Primo giro su tutti; poi solo sugli host visti attivi nel loop o noti. Corsie = host riprovati insieme (predefinito 4)"/>
+                                <TextBox x:Name="TxtSweepLanes" Grid.Row="5" Grid.Column="1" HorizontalAlignment="Right" Width="48" Text="4"/>
                             </Grid>
                             <CheckBox x:Name="ChkSkipNotAlive" l:Loc.Text="Salta i bersagli non confermati attivi" IsChecked="True"
                                       l:Loc.Tip="Attiva: un host senza conferma riceve «Non raggiungibile» senza tentare HTTP. Disattivata: l'alive check resta registrato ma la scansione HTTP parte comunque (utile dietro firewall che bloccano ICMP)"/>
@@ -243,6 +244,11 @@
                                 <DockPanel Grid.Row="5" Grid.Column="1">
                                     <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseFolder_Click"/>
                                     <TextBox x:Name="TxtOutput"/>
+                                </DockPanel>
+                                <TextBlock Grid.Row="7" Style="{StaticResource Lbl}" l:Loc.Text="Host noti"/>
+                                <DockPanel Grid.Row="7" Grid.Column="1">
+                                    <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseKnownHosts_Click"/>
+                                    <TextBox x:Name="TxtKnownHosts" l:Loc.Tip="Facoltativo: file con gli host attivi in sessioni precedenti, un IP per riga (es. host_attivi_vX.Y.txt della sessione prima). Lo sweeper li riprova a ogni ciclo; chi resta muto viene segnato «Host noto» nella scheda: attivo prima, muto ora"/>
                                 </DockPanel>
                                 <TextBlock Grid.Row="6" Style="{StaticResource Lbl}" l:Loc.Text="Inventario (CSV/JSON)"/>
                                 <DockPanel Grid.Row="6" Grid.Column="1">

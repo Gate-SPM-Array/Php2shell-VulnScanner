@@ -130,15 +130,18 @@ public sealed class ScanEngine
         public SemaphoreSlim? AliveSem;
         /// <summary>Corsie della seconda chance (v1.9): metà dei thread, minimo 4.</summary>
         public SemaphoreSlim? RetrySem;
-        /// <summary>Coda della seconda chance (v1.9): riempita appena la coda degli host si svuota, servita dai lavoratori liberi mentre finiscono i nomi.</summary>
+        /// <summary>Coda degli host recuperati dallo sweeper (v1.11): servita dai lavoratori dopo i nomi e prima degli host nuovi.</summary>
         public readonly ConcurrentQueue<ScanTarget> RetryQueue = new();
-        public int RetryStarted, RetryCount, RetryAliveBefore;
+        /// <summary>v1.11: sweeper in corso (i lavoratori non terminano finché gira), host riprovati e recuperati nel ciclo.</summary>
+        public int SweeperActive, SweptCount, RecoveredCount;
+        /// <summary>v1.11: host attivi nelle sessioni precedenti (file "Host noti").</summary>
+        public HashSet<string> KnownHosts = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>v1.10: numero del ciclo e host visti attivi almeno una volta nel loop (dal ciclo 2 la seconda chance riguarda solo questi).</summary>
         public int CycleNo = 1;
         public ConcurrentDictionary<string, byte> EverAlive = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>v1.10: host della lista bersagli (per dirottare i nomi da CT che risolvono su un altro IP del perimetro) e nomi dirottati in attesa.</summary>
         public HashSet<string> TargetHosts = new(StringComparer.OrdinalIgnoreCase);
-        public readonly ConcurrentDictionary<string, ConcurrentBag<string>> ExtraNames = new(StringComparer.OrdinalIgnoreCase);
+        public ConcurrentDictionary<string, ConcurrentBag<string>> ExtraNames = new(StringComparer.OrdinalIgnoreCase);   // v1.11: condiviso tra i cicli
         public readonly ConcurrentDictionary<string, byte> DoneHosts = new(StringComparer.OrdinalIgnoreCase);
         public readonly ConcurrentDictionary<string, Task<IReadOnlyList<string>>> DnsCache = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>Host saltati perché non confermati attivi (v1.8): candidati alla seconda chance a fine ciclo.</summary>
@@ -163,6 +166,8 @@ public sealed class ScanEngine
         // unione di tutte le osservazioni del loop per i file degli host (host_attivi, host_http, nomi_scoperti): vince il più informativo
         var cumulative = new ConcurrentDictionary<string, ScanResult>(StringComparer.OrdinalIgnoreCase);
         var everAlive = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);   // v1.10
+        var extraNames = new ConcurrentDictionary<string, ConcurrentBag<string>>(StringComparer.OrdinalIgnoreCase);   // v1.11: i nomi dirottati sopravvivono al ciclo
+        var knownHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // v1.11: caricato al primo ciclo, quando il writer esiste
         string? firstFolder = null;
         var consolidated = new ConcurrentDictionary<string, ScanResult>(StringComparer.OrdinalIgnoreCase);
         var estimator = new ScanEstimator { Cycles = cycles, CyclePauseSec = cfg.CyclePauseSec };
@@ -212,6 +217,7 @@ public sealed class ScanEngine
                         cfg.DebugMode ? "; " + L.T("modalità debug") : ""));
                     LogLine(Apps.TechnologyDatabase.Default is { } db ? L.F("Database applicazioni: {0} tecnologie, inventario NCSC-NL {1} pacchetti ({2})", db.Count, db.Inventory.Count, db.DataVersion.Replace("\n", " | ")) : L.T("Database applicazioni non caricato (cartella data\\ assente): solo le firme incorporate"));
                     if (cycles > 1) LogLine(L.F("Cicli: {0}, pausa {1} s, {2}", cycles, cfg.CyclePauseSec, consolidate ? L.T("risultati consolidati in una sessione") : L.T("una sessione per ciclo")));
+                    foreach (var h in LoadKnownHosts(cfg, LogLine)) knownHosts.Add(h);   // v1.11
                 }
 
                 var run = new Run
@@ -242,7 +248,7 @@ public sealed class ScanEngine
                 var passResults = new ConcurrentDictionary<string, ScanResult>(StringComparer.OrdinalIgnoreCase);
                 var origEmit = run.Emit;
                 run.Emit = r => { passResults[r.Key] = r; origEmit(r); };
-                run.CycleNo = cycle; run.EverAlive = everAlive;
+                run.CycleNo = cycle; run.EverAlive = everAlive; run.ExtraNames = extraNames; run.KnownHosts = knownHosts;
                 run.Replace = r =>
                 {
                     // v1.8: riemissione nello stesso ciclo (seconda chance dell'alive check): il consolidato fonde per chiave sostituendo la riga di storia,
@@ -355,24 +361,18 @@ public sealed class ScanEngine
             // finivano in coda dietro migliaia di host (16 min di attesa misurati sulla /20); ora ogni lavoratore prende prima un nome, poi un host.
             var hostQueue = new ConcurrentQueue<ScanTarget>(hosts);
             run.Outstanding = hosts.Count;
-            bool retryOn = cfg.Alive.Enabled && cfg.Alive.SkipIfNotAlive && cfg.Alive.Retry;
-            // v1.9: corsie della seconda chance = metà dei thread (minimo 4, mai più dei thread); timeout 1,5×. Sulla /22 con 4 corsie e timeout 2×
-            // costava 11,5 min per ciclo (914 host) per 3-4 host recuperati.
-            // v1.10: corsie fisse (RetryLanes): l'alive check della seconda chance è solo ICMP + TCP, e con 6 thread le 4 corsie della v1.9 costavano 35 min per ciclo sulla /20
-            run.RetrySem = retryOn ? new SemaphoreSlim(RetryLanes) : null;
-            await RunWorkersAsync(run, cfg.Threads, hostQueue, ports, estimator).ConfigureAwait(false);
-            // v1.8/v1.9: seconda chance per gli host non confermati attivi (ICMP + TCP sulle porte della scansione, timeout 1,5×): un ciclo "tirato"
-            // non perde host per sempre; chi risponde viene scansionato per intero e la sua riga sostituisce quella "non raggiungibile".
-            // Dalla v1.9 parte appena la coda degli host si svuota (lavoratori liberi mentre finiscono i nomi); qui resta solo la coda finale
-            // degli host che erano ancora in corso a quel momento.
-            if (retryOn && !run.NotAlive.IsEmpty)
-            {
-                StartRetry(run, ports);
-                run.Outstanding = run.RetryQueue.Count;
-                await RunWorkersAsync(run, cfg.Threads, new ConcurrentQueue<ScanTarget>(), ports, estimator).ConfigureAwait(false);
-            }
-            if (retryOn && run.RetryStarted > 0)
-                run.Log(L.F("Seconda chance: {0} host recuperati su {1}", run.AliveHosts.Count - run.RetryAliveBefore, run.RetryCount));
+            bool sweeperOn = cfg.Alive.Enabled && cfg.Alive.SkipIfNotAlive && cfg.Alive.Retry;
+            // v1.11: sweeper continuo (proposta del maintainer): un task a parte riprova per tutto il ciclo gli host non confermati (ICMP + TCP sulle
+            // porte della scansione, timeout 1,5×, corsie proprie); chi risponde entra subito nella coda del ciclo in corso. Sostituisce la seconda
+            // chance a fine ciclo delle v1.8-v1.10. Dal ciclo 2 il primo giro copre ancora tutti i non confermati; i giri successivi solo gli host
+            // visti attivi nel loop o noti dalle sessioni precedenti.
+            run.RetrySem = sweeperOn ? new SemaphoreSlim(Math.Max(1, cfg.Alive.SweepLanes)) : null;
+            Task? sweeper = null;
+            if (sweeperOn) { run.SweeperActive = 1; sweeper = SweeperAsync(run, hostQueue, ports); }
+            try { await RunWorkersAsync(run, cfg.Threads, hostQueue, ports, estimator).ConfigureAwait(false); }
+            finally { if (sweeper != null) { try { await sweeper.ConfigureAwait(false); } catch (OperationCanceledException) { } } }
+            if (sweeperOn)
+                run.Log(L.F("Sweeper dell'alive check: {0} host recuperati, {1} tentativi nel ciclo", run.RecoveredCount, run.SweptCount));
         }
         catch (OperationCanceledException) { status = ScanStatus.Stopped; }
         finally
@@ -471,8 +471,7 @@ public sealed class ScanEngine
                     finally { Interlocked.Decrement(ref run.Outstanding); }
                     continue;
                 }
-                // v1.9: coda degli host vuota: la seconda chance parte subito (una volta sola) e i lavoratori liberi la servono mentre gli altri finiscono i nomi
-                if (retryOn && Interlocked.CompareExchange(ref run.RetryStarted, 1, 0) == 0) StartRetry(run, ports);
+                // v1.11: host recuperati dallo sweeper, serviti dopo i nomi e prima degli host nuovi
                 if (run.RetryQueue.TryDequeue(out var again))
                 {
                     await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
@@ -480,7 +479,7 @@ public sealed class ScanEngine
                     finally { Interlocked.Decrement(ref run.Outstanding); }
                     continue;
                 }
-                if (Volatile.Read(ref run.Outstanding) <= 0) return;
+                if (Volatile.Read(ref run.Outstanding) <= 0 && Volatile.Read(ref run.SweeperActive) == 0) return;
                 await Task.Delay(25, run.Ct).ConfigureAwait(false);
             }
         }
@@ -488,26 +487,83 @@ public sealed class ScanEngine
         await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
-    /// <summary>Corsie dell'alive check della seconda chance (v1.10): indipendenti dai thread HTTP.</summary>
-    public const int RetryLanes = 16;
-
-    /// <summary>Seconda chance (v1.9): sposta gli host non confermati raccolti finora nella coda della seconda chance (lavoro in più per i lavoratori). v1.10: dal ciclo 2 solo gli host visti attivi almeno una volta nel loop.</summary>
-    private static void StartRetry(Run run, List<int> ports)
+    /// <summary>v1.11: host noti dal file "Host noti" (un IP o nome per riga, # commenti), es. host_attivi_vX.Y.txt di una sessione precedente.</summary>
+    private static HashSet<string> LoadKnownHosts(ScanConfig cfg, Action<string> log)
     {
-        var batch = new List<ScanTarget>();
-        int skipped = 0;
-        while (run.NotAlive.TryTake(out var x))
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(cfg.KnownHostsPath)) return set;
+        try
         {
-            if (run.CycleNo > 1 && !run.EverAlive.ContainsKey(x.Target.Host)) { skipped++; continue; }
-            batch.Add(x.Target);
+            foreach (var raw in File.ReadLines(cfg.KnownHostsPath))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith('#')) continue;
+                set.Add(line.Split(new[] { ' ', '\t', ',', ';' }, StringSplitOptions.RemoveEmptyEntries)[0]);
+            }
+            log(L.F("Host noti: {0} host attivi in sessioni precedenti letti da {1}; lo sweeper li riprova a ogni ciclo", set.Count, cfg.KnownHostsPath));
         }
-        if (skipped > 0 && run.RetryCount == 0) run.Log(L.F("Seconda chance: {0} host mai visti attivi nel loop non vengono riprovati (dal ciclo 2 si riprovano solo gli host attivi almeno una volta)", skipped));
-        if (batch.Count == 0) return;
-        if (run.RetryCount == 0) { run.RetryAliveBefore = run.AliveHosts.Count; run.RetryStarted = 1; }
-        Interlocked.Add(ref run.RetryCount, batch.Count);
-        Interlocked.Add(ref run.Outstanding, batch.Count);
-        run.Log(L.F("Seconda chance dell'alive check: {0} host non confermati riprovati a ritmo lento (ICMP + TCP {1}, timeout {2} ms)", batch.Count, string.Join(",", ports), run.Cfg.Alive.TimeoutMs * 3 / 2));
-        foreach (var t in batch) run.RetryQueue.Enqueue(t);
+        catch (Exception ex) { log(L.F("Host noti non letti ({0}): {1}", cfg.KnownHostsPath, ex.Message)); }
+        return set;
+    }
+
+    /// <summary>
+    /// Sweeper dell'alive check (v1.11): per tutto il ciclo riprova a ritmo lento gli host non confermati (ICMP + TCP sulle porte della scansione,
+    /// timeout 1,5×, <see cref="AliveConfig.SweepLanes"/> corsie); chi risponde entra subito nella coda del ciclo (<see cref="Run.RetryQueue"/>).
+    /// Primo giro su tutti i non confermati (anche dal ciclo 2); i giri successivi solo sugli host visti attivi nel loop o noti dalle sessioni
+    /// precedenti. Si ferma quando la coda degli host è vuota e non c'è più lavoro in corso: a quel punto riprova una volta sola i non confermati
+    /// mai riprovati nel ciclo (quelli ancora in corso quando il giro è passato).
+    /// </summary>
+    private async Task SweeperAsync(Run run, ConcurrentQueue<ScanTarget> hostQueue, List<int> ports)
+    {
+        var cfg = run.Cfg;
+        var swept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);     // riprovati almeno una volta nel ciclo
+        var pending = new Dictionary<string, ScanTarget>(StringComparer.OrdinalIgnoreCase);   // non confermati noti allo sweeper
+        bool firstRoundDone = false;
+        run.Log(L.F("Sweeper dell'alive check attivo: {0} corsie, ICMP + TCP {1}, timeout {2} ms; chi risponde entra subito nel ciclo", Math.Max(1, cfg.Alive.SweepLanes), string.Join(",", ports), cfg.Alive.TimeoutMs * 3 / 2));
+        try
+        {
+            while (true)
+            {
+                run.Ct.ThrowIfCancellationRequested();
+                while (run.NotAlive.TryTake(out var x)) pending[x.Target.Host] = x.Target;
+                bool passOver = hostQueue.IsEmpty && Volatile.Read(ref run.Outstanding) <= 0;
+                // giro: primo su tutti; poi solo attivi nel loop o noti; alla fine della passata solo i mai riprovati
+                var round = pending.Values.Where(t => passOver ? !swept.Contains(t.Host) : !firstRoundDone || run.EverAlive.ContainsKey(t.Host) || run.KnownHosts.Contains(t.Host)).ToList();
+                if (round.Count == 0)
+                {
+                    if (passOver) break;
+                    if (pending.Count > 0 && !firstRoundDone) firstRoundDone = true;
+                    await Task.Delay(1000, run.Ct).ConfigureAwait(false);
+                    continue;
+                }
+                var tasks = round.Select(async t =>
+                {
+                    await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
+                    var acfg = new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = ports, UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 3 / 2 };
+                    var sem = run.RetrySem!;
+                    await sem.WaitAsync(run.Ct).ConfigureAwait(false);
+                    AliveResult res;
+                    try { res = await AliveChecker.CheckAsync(t.Host, acfg, run.Ct).ConfigureAwait(false); }
+                    finally { sem.Release(); }
+                    Interlocked.Increment(ref run.SweptCount);
+                    lock (swept) swept.Add(t.Host);
+                    if (res.State == AliveState.Alive)
+                    {
+                        Interlocked.Increment(ref run.RecoveredCount);
+                        Interlocked.Increment(ref run.Outstanding);
+                        run.RetryQueue.Enqueue(t);
+                        run.Log(L.F("{0}: risponde allo sweeper ({1}): entra nel ciclo", t.Host, res.Method));
+                        return t.Host;
+                    }
+                    return null;
+                }).ToList();
+                var recovered = await Task.WhenAll(tasks).ConfigureAwait(false);
+                foreach (var h in recovered) if (h != null) pending.Remove(h);
+                firstRoundDone = true;
+                if (passOver) break;
+            }
+        }
+        finally { Interlocked.Exchange(ref run.SweeperActive, 0); }
     }
 
     /// <summary>Un host: risoluzione e alive check una volta, qualunque sia il numero di porte, pre-controllo delle porte, poi le porte in sequenza; le righe per IP vanno in anteprima e la seconda passata sui nomi scoperti viene accodata (v1.8), con la chiusura dell'host come ultimo lavoro.</summary>
@@ -518,7 +574,7 @@ public sealed class ScanEngine
         if (info.Alive?.State == AliveState.Alive) { run.AliveHosts.TryAdd(target.Host, 0); run.EverAlive.TryAdd(target.Host, 0); }
 
         bool skipAll = info.Error != null || (info.Alive != null && info.Alive.State != AliveState.Alive && cfg.Alive.SkipIfNotAlive);
-        if (retry && skipAll) return;   // seconda chance fallita: la riga "non raggiungibile" resta quella già emessa
+        if (retry && skipAll) return;   // non conferma più: la riga "non raggiungibile" resta quella già emessa
         Dictionary<int, (PortState State, double Ms)>? precheck = null;
         if (!skipAll && cfg.PortPrecheck && ports.Count > 1)
         {
@@ -619,8 +675,11 @@ public sealed class ScanEngine
             }
         }
 
+        // v1.11: host noto attivo in una sessione precedente e muto ora: lo si dice
+        if (skipAll && run.KnownHosts.Contains(target.Host))
+            foreach (var r in results) r.Add("KNOWN-HOST", L.T("Host noto"), TestOutcome.Warn, L.T("attivo in una sessione precedente (file Host noti), nessuna risposta in questa: da verificare se spento, filtrato o irraggiungibile da questa sorgente"));
         FinishHost(run, target, results, [], [], retry);
-        // v1.9: candidato alla seconda chance solo dopo che le righe "non raggiungibile" sono uscite (la riemissione deve sostituirle, non precederle)
+        // v1.9: candidato allo sweeper solo dopo che le righe "non raggiungibile" sono uscite (la riemissione deve sostituirle, non precederle)
         if (skipAll && info.Error == null && info.Alive != null && cfg.Alive.Retry && !retry) run.NotAlive.Add((target, ports));
     }
 
@@ -703,7 +762,7 @@ public sealed class ScanEngine
             switch (fate)
             {
                 case CtFate.Route: run.ExtraNames.GetOrAdd(other!, _ => []).Add(name); routed++; elsewhereList.Add(name + " → " + other); break;
-                case CtFate.Done: alreadyDone++; run.Log(L.F("{0}: il nome {1} (CT) risolve su {2}, già analizzato: non riscansionato", target.Host, name, other)); elsewhereList.Add(name + " → " + other); break;
+                case CtFate.Done: alreadyDone++; run.ExtraNames.GetOrAdd(other!, _ => []).Add(name); run.Log(L.F("{0}: il nome {1} (CT) risolve su {2}, già analizzato: non riscansionato", target.Host, name, other) + (run.Cfg.Cycles > 1 ? " " + L.T("(sarà provato al ciclo successivo)") : "")); elsewhereList.Add(name + " → " + other); break;
                 default: elsewhere++; elsewhereList.Add(name + " → –"); break;
             }
         }

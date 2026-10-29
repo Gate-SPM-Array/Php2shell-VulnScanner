@@ -33,7 +33,7 @@ public class V110Tests : IDisposable
     // ---------- seconda chance: dal ciclo 2 solo host visti attivi ----------
 
     [Fact]
-    public async Task SecondChance_FromCycle2_OnlyHostsSeenAlive()
+    public async Task Sweeper_RetriesUnconfirmedHost_EachCycle_WithoutRecovering()
     {
         var cfg = new ScanConfig
         {
@@ -47,9 +47,9 @@ public class V110Tests : IDisposable
         engine.Log += l => { lock (log) log.Add(l); };
         var s = await engine.RunAsync(cfg, CancellationToken.None);
         Assert.Equal(Verdict.NotReachable, Assert.Single(s.Results).Verdict);
-        Assert.Contains(log, l => l.Contains("Seconda chance dell'alive check: 1 host"));                      // ciclo 1: riprovato
-        Assert.Contains(log, l => l.Contains("1 host mai visti attivi nel loop non vengono riprovati"));      // ciclo 2: no
-        Assert.Equal(16, ScanEngine.RetryLanes);
+        // v1.11: lo sweeper riprova l'host (primo giro di ogni ciclo) senza recuperarlo
+        Assert.Equal(2, log.Count(l => l.Contains("Sweeper dell'alive check: 0 host recuperati")));
+        Assert.Contains(log, l => l.Contains("Sweeper dell'alive check attivo"));
     }
 
     // ---------- reset dal perimetro ----------

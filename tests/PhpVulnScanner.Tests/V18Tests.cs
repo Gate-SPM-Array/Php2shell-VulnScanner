@@ -49,8 +49,8 @@ public class V18Tests : IDisposable
         Assert.Equal(AliveState.Alive, r.Alive);
         Assert.Equal(1, s.HostsAlive);
         Assert.Equal([Verdict.NotReachable, Verdict.VulnerableByVersion], ready);   // prima la riga "non raggiungibile", poi la sostituzione
-        Assert.Contains(log, l => l.Contains("Seconda chance dell'alive check: 1 host"));
-        Assert.Contains(log, l => l.Contains("Seconda chance: 1 host recuperati su 1"));
+        Assert.Contains(log, l => l.Contains("risponde allo sweeper"));                       // v1.11: sweeper continuo
+        Assert.Contains(log, l => l.Contains("Sweeper dell'alive check: 1 host recuperati"));
         // file di sessione: una riga sola; results.jsonl: entrambe le osservazioni
         Assert.Single(SessionFiles.ReadSession(s.Folder)!.Results);
         var obs = SessionFiles.ReadJsonl(Path.Combine(s.Folder, SessionFiles.ResultsJsonl));

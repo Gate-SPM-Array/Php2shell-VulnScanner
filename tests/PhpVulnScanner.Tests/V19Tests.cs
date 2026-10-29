@@ -32,8 +32,8 @@ public class V19Tests : IDisposable
         Assert.All(s.Results, r => Assert.Equal(Verdict.VulnerableByVersion, r.Verdict));
         Assert.Equal(4, s.HostsAlive);
         Assert.Contains(log, l => l.Contains("timeout 2250 ms"));                     // 1500 × 1,5
-        Assert.Contains(log, l => l.Contains("Seconda chance: 4 host recuperati su 4"));
-        Assert.Single(log, l => l.Contains("Seconda chance: "));                       // il totale una volta sola
+        Assert.Contains(log, l => l.Contains("Sweeper dell'alive check: 4 host recuperati"));   // v1.11
+        Assert.Single(log, l => l.Contains("Sweeper dell'alive check: "));             // il totale una volta sola
     }
 
     [Fact]
@@ -49,8 +49,8 @@ public class V19Tests : IDisposable
         var s = await engine.RunAsync(cfg, CancellationToken.None);
         Assert.Equal(3, s.Results.Count);
         Assert.All(s.Results, r => Assert.Equal(Verdict.VulnerableByVersion, r.Verdict));
-        Assert.Contains(log, l => l.Contains("Seconda chance: 3 host recuperati su 3"));
-        Assert.True(log.Count(l => l.Contains("Seconda chance dell'alive check:")) >= 1);
+        Assert.Contains(log, l => l.Contains("Sweeper dell'alive check: 3 host recuperati"));
+        Assert.Equal(3, log.Count(l => l.Contains("risponde allo sweeper")));
         // nessun host contato due volte: le righe per host sono 3, i completamenti 3
         Assert.Equal(3, SessionFiles_ResultCount(s.Folder));
     }

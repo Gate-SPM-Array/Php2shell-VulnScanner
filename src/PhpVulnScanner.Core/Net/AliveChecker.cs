@@ -23,8 +23,10 @@ public sealed class AliveConfig
     public bool SkipIfNotAlive { get; set; } = true;
     /// <summary>v1.8: host in alive check contemporaneamente (0 = quanti i thread). Indipendente dai thread HTTP: ogni host apre ICMP + TCP + UDP insieme.</summary>
     public int Parallel { get; set; } = 8;
-    /// <summary>v1.8: a fine ciclo gli host non confermati vengono riprovati una volta a ritmo lento (ICMP + TCP sulle porte della scansione, timeout doppio).</summary>
+    /// <summary>v1.8: a fine ciclo gli host non confermati vengono riprovati (v1.11: sweeper continuo per tutto il ciclo, ICMP + TCP sulle porte della scansione, timeout 1,5×).</summary>
     public bool Retry { get; set; } = true;
+    /// <summary>v1.11: corsie dello sweeper (host non confermati riprovati insieme), indipendenti dai thread HTTP.</summary>
+    public int SweepLanes { get; set; } = 4;
 }
 
 /// <summary>Esito del controllo: Attivo (almeno un metodo ha ricevuto una risposta), Nessuna risposta, Non eseguito.</summary>

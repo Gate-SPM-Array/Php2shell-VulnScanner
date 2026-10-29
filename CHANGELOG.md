@@ -2,6 +2,22 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.11 — 2026-10-29
+
+Via del maintainer dopo il giro notturno della v1.10 sulla /20 (16 thread, 8 cicli: 54-59 min per ciclo, zero errori) e la sua proposta di un alive check continuo in parallelo alla scansione. Nessuna richiesta HTTP in più al bersaglio.
+
+### Novità
+- **Sweeper dell'alive check** (proposta del maintainer): un task a parte riprova a ritmo lento, per tutta la durata del ciclo, gli host non confermati attivi (ICMP + TCP sulle porte della scansione, timeout 1,5×, corsie proprie: campo "corsie", predefinito 4, `--sweep-lanes`); chi risponde entra **subito** nella coda del ciclo in corso (dopo i nomi, prima degli host nuovi) e la riga "Non raggiungibile" viene sostituita. Primo giro su tutti i non confermati (anche dal ciclo 2); i giri successivi solo sugli host visti attivi nel loop o noti; alla fine della passata un ultimo giro sui non confermati mai riprovati nel ciclo. Sostituisce la seconda chance a fine ciclo delle v1.8-v1.10 (`--no-alive-retry` la spegne). Motivo: un host rimasto muto nella passata principale (sulla /20: un host attivo dato muto per 8 cicli perché una seconda istanza dallo stesso IP ne occupava le connessioni) rientra appena risponde, non al ciclo dopo.
+- **Host noti** (campo nella sezione Bersagli, `--known-hosts <file>`): file con gli host attivi nelle sessioni precedenti, un IP per riga (es. `host_attivi_vX.Y.txt` della sessione prima). Lo sweeper li riprova a ogni ciclo; chi resta muto ha il test `KNOWN-HOST` nella scheda ("attivo in una sessione precedente, nessuna risposta in questa"), così un host che sparisce è un'informazione, non un buco.
+
+### Corretto
+- I nomi da CT dirottati verso un host **già analizzato** si perdevano (486 su 873 nella notte della v1.10): ora restano in memoria tra un ciclo e l'altro e vengono provati al ciclo successivo.
+- Conteggio dei recuperati nel log ("7 recuperati su 6": contava anche gli host attivi finiti durante la seconda chance): ora conta solo gli host recuperati dallo sweeper e i tentativi fatti.
+- Stato della riga di comando (`--merge`, `--save-config`, `--analysis-bundle`) per thread: chiamate parallele a `Parse` (test) non si pestano più.
+
+### Test
+- 402 test (+4, `V111Tests`): sweeper che recupera gli host durante il ciclo con conteggio esatto, sweeper spento, host noti (test `KNOWN-HOST`, riprovati in ogni ciclo), opzioni CLI. Test v1.8-v1.10 della seconda chance adeguati alle righe dello sweeper.
+
 ## v1.10 — 2026-10-28
 
 Via del maintainer dopo il giro notturno della v1.9 sulla /20 (6 thread, 5 cicli) e le note sul report. Nessuna richiesta in più al bersaglio: una query DNS per nome da CT.

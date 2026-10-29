@@ -21,8 +21,11 @@ public static class CliRunner
     public static bool IsCliInvocation(string[] args) =>
         args.Any(a => a is "--scan" or "--help" or "-h" or "/?" or "--version" or "--merge");
 
-    /// <summary>Cartelle passate a --merge nell'ultima chiamata a Parse (fusione di sessioni, nessuna scansione).</summary>
-    public static List<string> MergeFolders { get; } = [];
+    /// <summary>Cartelle passate a --merge nell'ultima chiamata a Parse (fusione di sessioni, nessuna scansione). v1.11: stato per thread, così chiamate parallele a Parse (test) non si pestano.</summary>
+    public static List<string> MergeFolders => _mergeFolders ??= [];
+    [ThreadStatic] private static List<string>? _mergeFolders;
+    [ThreadStatic] private static string? _saveConfigPath;
+    [ThreadStatic] private static bool _analysisBundle;
 
     public static string Usage() => string.Join("\n",
     [
@@ -37,7 +40,8 @@ public static class CliRunner
         L.T("  --no-alive               nessun alive check preliminare"),
         L.T("  --alive-tcp 443,80       porte TCP dell'alive check    --alive-udp 53   porte UDP    --no-icmp"),
         L.T("  --alive-timeout <ms>     timeout dell'alive check       --scan-not-alive  scansiona anche i non confermati"),
-        L.T("  --alive-parallel <n>     host in alive check insieme (8; 0 = thread)   --no-alive-retry  nessuna seconda chance a fine ciclo"),
+        L.T("  --alive-parallel <n>     host in alive check insieme (8; 0 = thread)   --no-alive-retry  nessuno sweeper dei non confermati"),
+        L.T("  --sweep-lanes <n>        corsie dello sweeper (4)   --known-hosts <file>  host attivi in sessioni precedenti (un IP per riga), riprovati a ogni ciclo"),
         L.T("  --no-level2              salta precondizioni e barriere  --no-waf   salta la rilevazione WAF/proxy"),
         L.T("  --light                  HEAD al posto di GET (meno traffico, meno segnali)"),
         L.T("  --threads <n>  --connect-timeout <ms>  --read-timeout <ms>  --resolver <ip>  --host-header <nome>"),
@@ -68,8 +72,8 @@ public static class CliRunner
 
     /// <summary>Interpreta gli argomenti. Restituisce null e un messaggio se non validi.</summary>
     /// <summary>v1.10: --save-config scrive qui la configurazione e la scansione non parte; --analysis-bundle crea lo zip per analisi a fine scansione.</summary>
-    public static string? SaveConfigPath { get; private set; }
-    public static bool AnalysisBundleRequested { get; private set; }
+    public static string? SaveConfigPath { get => _saveConfigPath; private set => _saveConfigPath = value; }
+    public static bool AnalysisBundleRequested { get => _analysisBundle; private set => _analysisBundle = value; }
 
     /// <summary>v1.10: legge una configurazione da file JSON: un ScanConfig, oppure un session.json (ne prende il blocco Config).</summary>
     public static ScanConfig LoadConfigFile(string path)
@@ -118,6 +122,8 @@ public static class CliRunner
                     case "--alive-timeout": cfg.Alive.TimeoutMs = Int(Next(), a); break;
                     case "--alive-parallel": cfg.Alive.Parallel = Int(Next(), a); break;
                     case "--no-alive-retry": cfg.Alive.Retry = false; break;
+                    case "--sweep-lanes": cfg.Alive.SweepLanes = Int(Next(), a); break;
+                    case "--known-hosts": cfg.KnownHostsPath = Next(); break;
                     case "--scan-not-alive": cfg.Alive.SkipIfNotAlive = false; break;
                     case "--no-level2": cfg.Level2 = false; break;
                     case "--no-waf": cfg.WafDetect = false; cfg.WafBehaviour = false; break;
@@ -191,10 +197,12 @@ public static class CliRunner
         if (args.Any(a => a == "--version")) { @out.WriteLine(HttpProbe.AppVersion); return ExitClean; }
         var cfg = Parse(args, defaultOutput, out var error, out var jsonCopy, out bool quiet);
         if (cfg == null) { @out.WriteLine(L.F("Errore: {0}", error)); @out.WriteLine(); @out.WriteLine(Usage()); return ExitUsage; }
-        if (MergeFolders.Count > 0) return await MergeAsync(MergeFolders.ToList(), cfg.OutputFolder, @out).ConfigureAwait(false);
-        if (SaveConfigPath != null)
+        // letti subito, sullo stesso thread di Parse (stato per thread)
+        var mergeFolders = MergeFolders.ToList(); string? saveConfig = SaveConfigPath; bool analysisBundle = AnalysisBundleRequested;
+        if (mergeFolders.Count > 0) return await MergeAsync(mergeFolders, cfg.OutputFolder, @out).ConfigureAwait(false);
+        if (saveConfig != null)
         {
-            try { File.WriteAllText(SaveConfigPath, JsonSerializer.Serialize(cfg, ScanConfig.JsonOptions), new UTF8Encoding(false)); @out.WriteLine(L.F("Configurazione salvata: {0}", SaveConfigPath)); return ExitClean; }
+            try { File.WriteAllText(saveConfig, JsonSerializer.Serialize(cfg, ScanConfig.JsonOptions), new UTF8Encoding(false)); @out.WriteLine(L.F("Configurazione salvata: {0}", saveConfig)); return ExitClean; }
             catch (Exception ex) { @out.WriteLine(L.F("Errore: {0}", ex.Message)); return ExitError; }
         }
 
@@ -224,7 +232,7 @@ public static class CliRunner
             try { File.Copy(Path.Combine(session.Folder, SessionFiles.ResultsJson), jsonCopy, overwrite: true); }
             catch (Exception ex) { @out.WriteLine(L.F("Copia JSON non riuscita: {0}", ex.Message)); }
         }
-        if (AnalysisBundleRequested)
+        if (analysisBundle)
         {
             try { @out.WriteLine(L.F("Pacchetto per analisi: {0}", AnalysisBundle.Build(session.Folder, Path.Combine(Path.GetDirectoryName(session.Folder.TrimEnd(Path.DirectorySeparatorChar)) ?? session.Folder, AnalysisBundle.DefaultName(session.Folder, session.AppVersion))))); }
             catch (Exception ex) { @out.WriteLine(L.F("Pacchetto per analisi non creato: {0}", ex.Message)); }
