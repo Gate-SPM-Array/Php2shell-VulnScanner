@@ -39,6 +39,8 @@ public sealed class ScanSession
     public int HostsHttp { get; set; }
     /// <summary>Versione dei dati del database applicazioni (webappanalyzer, NCSC-NL) usati dalla scansione; vuota se il database non era caricato.</summary>
     public string DataVersion { get; set; } = "";
+    /// <summary>v1.11.1: avvisi di sessione (es. porta del perimetro che conferma quasi tutti gli host), mostrati nel report compatto.</summary>
+    public List<string> Notes { get; set; } = [];
     public ScanConfig Config { get; set; } = new();
     public List<ScanResult> Results { get; set; } = [];
 }
@@ -136,6 +138,8 @@ public sealed class ScanEngine
         public int SweeperActive, SweptCount, RecoveredCount;
         /// <summary>v1.11: host attivi nelle sessioni precedenti (file "Host noti").</summary>
         public HashSet<string> KnownHosts = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>v1.11.1: host confermati per metodo dell'alive check (TCP/1720 → 3556): base dell'avviso "porta del perimetro".</summary>
+        public readonly ConcurrentDictionary<string, int> AliveByMethod = new(StringComparer.Ordinal);
         /// <summary>v1.10: numero del ciclo e host visti attivi almeno una volta nel loop (dal ciclo 2 la seconda chance riguarda solo questi).</summary>
         public int CycleNo = 1;
         public ConcurrentDictionary<string, byte> EverAlive = new(StringComparer.OrdinalIgnoreCase);
@@ -286,6 +290,13 @@ public sealed class ScanEngine
                 current.Status = status;
                 if (consolidate) { session.HostsAlive = run.AliveHosts.Count; session.HostsHttp = run.HttpHosts.Count; }
 
+                // v1.11.1: una porta TCP che conferma quasi tutti gli host della rete è il perimetro, non gli host
+                foreach (var note in PerimeterPortNotes(run.AliveByMethod, current.HostsTotal))
+                {
+                    LogLine(cycleTag + note);
+                    if (!session.Notes.Contains(note)) session.Notes.Add(note);
+                    if (!current.Notes.Contains(note)) current.Notes.Add(note);
+                }
                 LogLine(cycleTag + (status == ScanStatus.Completed
                     ? L.F("Scansione completata in {0} ({1:F1} s): {2} risultati, {3} host attivi su {4}, {5} con HTTP", ScanEstimator.Duration(passSec), passSec, passResults.Count, run.AliveHosts.Count, current.HostsTotal, run.HttpHosts.Count)
                     : L.F("Scansione interrotta dall'utente: {0} di {1} completati", run.Done, run.Total)));
@@ -519,7 +530,7 @@ public sealed class ScanEngine
         var swept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);     // riprovati almeno una volta nel ciclo
         var pending = new Dictionary<string, ScanTarget>(StringComparer.OrdinalIgnoreCase);   // non confermati noti allo sweeper
         bool firstRoundDone = false;
-        run.Log(L.F("Sweeper dell'alive check attivo: {0} corsie, ICMP + TCP {1}, timeout {2} ms; chi risponde entra subito nel ciclo", Math.Max(1, cfg.Alive.SweepLanes), string.Join(",", ports), cfg.Alive.TimeoutMs * 3 / 2));
+        run.Log(L.F("Sweeper dell'alive check attivo: {0} corsie, ICMP + TCP {1}, timeout {2} ms; chi risponde entra subito nel ciclo", Math.Max(1, cfg.Alive.SweepLanes), cfg.Alive.EffectiveSweepTcpPorts.Count > 0 ? string.Join(",", cfg.Alive.EffectiveSweepTcpPorts) : "–", cfg.Alive.TimeoutMs * 3 / 2));
         try
         {
             while (true)
@@ -539,7 +550,7 @@ public sealed class ScanEngine
                 var tasks = round.Select(async t =>
                 {
                     await run.Pause.WaitAsync(run.Ct).ConfigureAwait(false);
-                    var acfg = new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = ports, UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 3 / 2 };
+                    var acfg = new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = cfg.Alive.EffectiveSweepTcpPorts, UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 3 / 2 };   // v1.11.1: porte dell'alive, non della scansione
                     var sem = run.RetrySem!;
                     await sem.WaitAsync(run.Ct).ConfigureAwait(false);
                     AliveResult res;
@@ -549,6 +560,7 @@ public sealed class ScanEngine
                     lock (swept) swept.Add(t.Host);
                     if (res.State == AliveState.Alive)
                     {
+                        if (res.Method.Length > 0) run.AliveByMethod.AddOrUpdate(res.Method, 1, (_, n) => n + 1);
                         Interlocked.Increment(ref run.RecoveredCount);
                         Interlocked.Increment(ref run.Outstanding);
                         run.RetryQueue.Enqueue(t);
@@ -571,7 +583,7 @@ public sealed class ScanEngine
     {
         var cfg = run.Cfg;
         var info = await ProbeHostAsync(run, target, retry).ConfigureAwait(false);
-        if (info.Alive?.State == AliveState.Alive) { run.AliveHosts.TryAdd(target.Host, 0); run.EverAlive.TryAdd(target.Host, 0); }
+        if (info.Alive?.State == AliveState.Alive) { run.AliveHosts.TryAdd(target.Host, 0); run.EverAlive.TryAdd(target.Host, 0); if (info.Alive.Method.Length > 0) run.AliveByMethod.AddOrUpdate(info.Alive.Method, 1, (_, n) => n + 1); }
 
         bool skipAll = info.Error != null || (info.Alive != null && info.Alive.State != AliveState.Alive && cfg.Alive.SkipIfNotAlive);
         if (retry && skipAll) return;   // non conferma più: la riga "non raggiungibile" resta quella già emessa
@@ -772,6 +784,17 @@ public sealed class ScanEngine
         run.Log($"{target.Host}: {detail}");
     }
 
+    /// <summary>v1.11.1: avviso "porta del perimetro": un metodo TCP che conferma almeno il 50% degli host di una rete di almeno 64 indirizzi (e almeno 32 host) è il perimetro che risponde al posto loro (sulla /20 TCP/1720 confermava 3556 host su 4094).</summary>
+    public static List<string> PerimeterPortNotes(IReadOnlyDictionary<string, int> aliveByMethod, int hostsTotal)
+    {
+        var notes = new List<string>();
+        if (hostsTotal < 64) return notes;
+        foreach (var kv in aliveByMethod.Where(kv => kv.Key.StartsWith("TCP/", StringComparison.Ordinal)).OrderByDescending(kv => kv.Value))
+            if (kv.Value >= 32 && kv.Value * 2 >= hostsTotal)
+                notes.Add(L.F("Porta del perimetro: {0} conferma {1} host su {2}: è il perimetro che risponde per tutti, non gli host. Togliere la porta dall'alive check (e dalle porte della scansione, dove costa un handshake a vuoto per host)", kv.Key, kv.Value, hostsTotal));
+        return notes;
+    }
+
     public enum CtFate { Here, Route, Done, Elsewhere }
 
     /// <summary>Sorte di un nome da CT (v1.10) dati i suoi indirizzi: vive qui, va dirottato a un altro host della lista, host già analizzato, fuori o non risolto.</summary>
@@ -862,7 +885,7 @@ public sealed class ScanEngine
         {
             // v1.8: tetto separato per l'alive check (sulla /20 con 36 thread × 13 sonde erano ~470 flussi aperti insieme e tutti i timeout);
             // nella seconda chance solo ICMP e TCP sulle porte della scansione, con timeout doppio
-            var acfg = retry ? new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = run.Ports.ToList(), UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 3 / 2, SkipIfNotAlive = cfg.Alive.SkipIfNotAlive } : cfg.Alive;
+            var acfg = retry ? new AliveConfig { Enabled = true, Icmp = cfg.Alive.Icmp, TcpPorts = cfg.Alive.EffectiveSweepTcpPorts, UdpPorts = [], TimeoutMs = cfg.Alive.TimeoutMs * 3 / 2, SkipIfNotAlive = cfg.Alive.SkipIfNotAlive } : cfg.Alive;
             var sem = retry ? run.RetrySem : run.AliveSem;
             if (sem != null) await sem.WaitAsync(run.Ct).ConfigureAwait(false);
             try

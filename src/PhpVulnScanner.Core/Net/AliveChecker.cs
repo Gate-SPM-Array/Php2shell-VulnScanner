@@ -27,6 +27,10 @@ public sealed class AliveConfig
     public bool Retry { get; set; } = true;
     /// <summary>v1.11: corsie dello sweeper (host non confermati riprovati insieme), indipendenti dai thread HTTP.</summary>
     public int SweepLanes { get; set; } = 4;
+    /// <summary>v1.11.1: porte TCP dello sweeper (vuoto = le stesse dell'alive check). Mai le porte della scansione: un perimetro che accetta la connessione su una porta per qualunque IP (sulla /20: TCP/1720) rendeva "attivi" 3556 host su 4094.</summary>
+    public List<int> SweepTcpPorts { get; set; } = [];
+    /// <summary>Porte TCP usate dallo sweeper.</summary>
+    public List<int> EffectiveSweepTcpPorts => SweepTcpPorts.Count > 0 ? SweepTcpPorts : TcpPorts;
 }
 
 /// <summary>Esito del controllo: Attivo (almeno un metodo ha ricevuto una risposta), Nessuna risposta, Non eseguito.</summary>

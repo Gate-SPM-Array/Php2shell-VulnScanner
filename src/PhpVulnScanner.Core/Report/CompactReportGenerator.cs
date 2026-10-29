@@ -98,6 +98,8 @@ public static class CompactReportGenerator
 
         foreach (var c in Correlations(reachable, httpHosts.Count))
             sb.Append("<p class=\"note\"><b>").Append(E(L.T("Correlazione"))).Append(":</b> ").Append(E(L.F("\"{0}: {1}\" compare su {2} host su {3} con HTTP, con web server diversi: è con ogni probabilità un unico dispositivo di perimetro (IPS/WAF di rete) e non una protezione dei singoli host.", Labels.WafCategory(c.Category), c.Name, c.Hosts, httpHosts.Count))).Append("</p>");
+        foreach (var n in s.Notes)
+            sb.Append("<p class=\"note maybe\"><b>").Append(E(L.T("Avviso"))).Append(":</b> ").Append(E(n)).Append("</p>");   // v1.11.1
         if (s.Cycles > 1 && s.Consolidated)
             sb.Append("<p class=\"note\">").Append(E(L.F("Consolidamento di {0} cicli: {1} risultati con verdetto cambiato tra i cicli (segnati con Δ nella tabella; la storia è nella scheda).", s.Cycle, results.Count(ResultMerger.VerdictChanged)))).Append("</p>");
         sb.Append("</section>");

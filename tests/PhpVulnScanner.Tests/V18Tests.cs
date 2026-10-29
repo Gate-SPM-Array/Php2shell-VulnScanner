@@ -35,7 +35,7 @@ public class V18Tests : IDisposable
         using var srv = new FakePhpServer { PoweredBy = "PHP/7.4.33" };
         var cfg = Cfg(srv);
         // primo giro: nessun metodo → non confermato; seconda chance: TCP sulla porta della scansione → attivo
-        cfg.Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 500, SkipIfNotAlive = true, Retry = true };
+        cfg.Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 500, SkipIfNotAlive = true, Retry = true, SweepTcpPorts = [srv.Port] };
         var engine = new ScanEngine();
         var log = new List<string>();
         engine.Log += l => { lock (log) log.Add(l); };
@@ -64,7 +64,7 @@ public class V18Tests : IDisposable
     {
         using var srv = new FakePhpServer { PoweredBy = "PHP/7.4.33" };
         var cfg = Cfg(srv);
-        cfg.Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 300, SkipIfNotAlive = true, Retry = true };
+        cfg.Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 300, SkipIfNotAlive = true, Retry = true, SweepTcpPorts = [srv.Port] };
         cfg.Cycles = 2; cfg.CyclePauseSec = 0; cfg.Consolidate = true;
         var s = await new ScanEngine().RunAsync(cfg, CancellationToken.None);
         var r = Assert.Single(s.Results);

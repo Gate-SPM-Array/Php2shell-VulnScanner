@@ -14,7 +14,7 @@ public class V111Tests : IDisposable
     private ScanConfig Cfg(FakePhpServer srv, string targets) => new()
     {
         TargetsText = targets, PortsText = srv.Port.ToString(), PathsText = "/ /index.php", ConnectTimeoutMs = 2000, ReadTimeoutMs = 5000, Threads = 2, OutputFolder = _dir,
-        Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 1000, SkipIfNotAlive = true, Retry = true, SweepLanes = 2 },
+        Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 1000, SkipIfNotAlive = true, Retry = true, SweepLanes = 2, SweepTcpPorts = [srv.Port] },
         Level1InfoPages = false, Level1EasterEgg = false, Level2 = false, WafDetect = false, WafBehaviour = false, SizeProbeKiB = 4,
         SurfaceDiscovery = false, DiscoverNames = false, RescanDiscoveredNames = false, PortPrecheck = false, RandomOrder = false,
         Advanced = new AdvancedOptions().Also(o => o.SetAll(false)), ServiceBudgetMs = 0,

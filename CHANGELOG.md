@@ -2,6 +2,17 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.11.1 — 2026-10-29
+
+Correzione urgente dopo la prova della v1.11 sulla /20 con porte di scansione estese (22, 25, 445, 1720, 3389): 3765 host "attivi" su 4094 contro i 343 reali, ciclo da 2 h invece di 55 min.
+
+### Corretto
+- **Lo sweeper usava le porte della scansione come prova di vita** (scelta ereditata dalla seconda chance v1.8). Il perimetro accetta la connessione su TCP/1720 per qualunque indirizzo della rete: 3556 host "recuperati" tutti via 1720, poi 4302 handshake TLS da 5 s a vuoto. Ora lo sweeper usa **ICMP e le porte TCP dell'alive check** (campo "TCP, porte"; da console `--sweep-tcp` per porte diverse), mai quelle della scansione.
+- **Avviso "porta del perimetro"**: se una porta TCP dell'alive check conferma almeno metà degli host di una rete (almeno 64 indirizzi, almeno 32 host), il log e il report compatto lo dicono con il consiglio di toglierla.
+
+### Test
+- 404 test (+2): sweeper senza porte di scansione (host muto resta muto; con `--sweep-tcp` rientra), avviso porta del perimetro (soglie, solo TCP, nel report).
+
 ## v1.11 — 2026-10-29
 
 Via del maintainer dopo il giro notturno della v1.10 sulla /20 (16 thread, 8 cicli: 54-59 min per ciclo, zero errori) e la sua proposta di un alive check continuo in parallelo alla scansione. Nessuna richiesta HTTP in più al bersaglio.
