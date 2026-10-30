@@ -173,7 +173,7 @@ public static class ReportGenerator
               .Append(E(Labels.Verdict(r.Verdict))).Append("</span> <b>").Append(E(r.Display)).Append(":").Append(r.Port).Append("</b> <span class=\"muted\">").Append(E(r.VerdictReason)).Append("</span></summary>");
             sb.Append("<table class=\"kv\">");
             Kv(sb, L.T("Indirizzi"), string.Join(", ", r.ResolvedIps));
-            Kv(sb, L.T("Host header"), r.HostHeader);
+            Kv(sb, L.T("Host header"), r.HostHeader + (r.LocalName ? " " + L.T("(nome assegnato localmente: file hosts o nome@IP, nessuna query DNS)") : ""));
             Kv(sb, L.T("Avvio"), Stamp.Local(r.StartedLocal));
             Kv(sb, L.T("Priorità"), Labels.Priority(r.Priority));
             if (r.Alive != AliveState.NotTested) Kv(sb, L.T("Alive check"), Labels.Alive(r.Alive) + (r.AliveMethod.Length > 0 ? $" ({r.AliveMethod})" : "") + (r.AliveMethods.Length > 0 ? ": " + r.AliveMethods : ""));

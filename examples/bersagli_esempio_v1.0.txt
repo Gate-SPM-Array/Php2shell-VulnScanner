@@ -5,3 +5,5 @@
 198.51.100.10-198.51.100.12
 203.0.113.20-25
 www.example.org
+# v1.12: nome scansionato su quell'IP senza DNS (SNI e Host = nome), come una voce del file hosts
+app.example.org@192.0.2.10

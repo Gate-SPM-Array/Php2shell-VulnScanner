@@ -117,7 +117,7 @@ public static class CompactReportGenerator
             foreach (var r in attention)
             {
                 string ncsc = NcscShort(r.NcscStatus);
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(r)).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
                   .Append(Badge(r.Verdict)).Append("</td><td>").Append(E(Labels.Priority(r.Priority))).Append("</td><td>").Append(E(PhpCell(r))).Append("</td><td>").Append(E(r.Sapi.Length > 0 ? Labels.Sapi(r.Sapi) : "–")).Append("</td><td>")
                   .Append(E(AppCell(r))).Append(ncsc != r.NcscStatus && r.NcscStatus.Length > 0 ? "</td><td title=\"" + E(r.NcscStatus) + "\">" : "</td><td>").Append(E(ncsc)).Append("</td><td>").Append(E(Labels.Multipart(r.Multipart))).Append(r.VariantsBlocked >= 0 ? $" ({r.VariantsBlocked}/{r.VariantsTotal})" : "").Append("</td><td>")
                   .Append(E(r.WafSummary.Length > 0 ? r.WafSummary : "–")).Append("</td><td>").Append(r.PhpSurface.Count).Append("</td><td>").Append(CycleCell(r, s)).Append("</td><td class=\"why\">").Append(E(ShortReason(r.VerdictReason))).Append("</td></tr>");
@@ -140,7 +140,7 @@ public static class CompactReportGenerator
                 if (HasPhpInfo(r)) items.Add(L.F("pagina phpinfo esposta: {0}", r.PhpVersionSource));
                 if (HasDirectoryListing(r)) items.Add(L.T("directory listing sul percorso principale"));
                 foreach (var x in r.Exposures) if (!items.Contains(x)) items.Add(x);
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(E(string.Join("; ", items))).Append("</td></tr>");
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(r)).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(E(string.Join("; ", items))).Append("</td></tr>");
             }
             sb.Append("</tbody></table>");
         }
@@ -178,7 +178,7 @@ public static class CompactReportGenerator
             foreach (var h in new[] { L.T("Bersaglio"), L.T("Nomi"), L.T("Porta"), L.T("Punteggio"), L.T("Indizi"), L.T("WAF") }) sb.Append("<th>").Append(E(h)).Append("</th>");
             sb.Append("</tr></thead><tbody>");
             foreach (var r in suspectRows)
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(r)).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
                   .Append(r.PhpHintScore).Append("</td><td>").Append(E(string.Join("; ", r.PhpHints))).Append("</td><td>").Append(E(r.WafSummary.Length > 0 ? r.WafSummary : "–")).Append("</td></tr>");
             sb.Append("</tbody></table>");
         }
@@ -216,7 +216,7 @@ public static class CompactReportGenerator
             foreach (var h in new[] { L.T("Bersaglio"), L.T("Nomi"), L.T("Porta"), L.T("Indice"), L.T("Voci") }) sb.Append("<th>").Append(E(h)).Append("</th>");
             sb.Append("</tr></thead><tbody>");
             foreach (var r in talkative)
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(NamesHtml(r)).Append("</td><td>").Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>")
                   .Append(r.VerbosityScore).Append("/5</td><td>").Append(E(string.Join("; ", r.VerbosityItems))).Append("</td></tr>");
             sb.Append("</tbody></table>");
         }
@@ -233,7 +233,7 @@ public static class CompactReportGenerator
             foreach (var h in new[] { L.T("Bersaglio"), L.T("Porta"), L.T("Nomi"), L.T("Stato del certificato") }) sb.Append("<th>").Append(E(h)).Append("</th>");
             sb.Append("</tr></thead><tbody>");
             foreach (var r in certs)
-                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(NamesHtml(HostLists.Names([r]))).Append("</td><td>")
+                sb.Append("<tr><td>").Append(E(HostLists.HostIp(r))).Append("</td><td>").Append(r.Port).Append("</td><td>").Append(NamesHtml(r)).Append("</td><td>")
                   .Append(E(r.CertificateStatus)).Append("</td></tr>");
             sb.Append("</tbody></table>");
         }
@@ -353,11 +353,14 @@ public static class CompactReportGenerator
     }
 
     /// <summary>v1.10: cella HTML con un nome per riga, senza spezzare i nomi (la v1.8 limitava la larghezza e spezzava ovunque: colonna illeggibile).</summary>
-    public static string NamesHtml(IEnumerable<string> names)
+    public static string NamesHtml(IEnumerable<string> names, string? localName = null)
     {
         var list = names.ToList();
-        return list.Count > 0 ? string.Join("<br>", list.Select(E)) : "–";
+        // v1.12: il nome assegnato localmente (file hosts, nome@IP) è marcato: è stato chiesto, non scoperto
+        return list.Count > 0 ? string.Join("<br>", list.Select(n => E(n) + (localName != null && n.Equals(localName, StringComparison.OrdinalIgnoreCase) ? " <span style=\"color:var(--muted);font-size:11px\" title=\"" + E(L.T("nome assegnato localmente: file hosts o nome@IP, nessuna query DNS")) + "\">(hosts)</span>" : ""))) : "–";
     }
+
+    private static string NamesHtml(ScanResult r) => NamesHtml(HostLists.Names([r]), r.LocalName ? r.DisplayName : null);
 
     private static string PhpCell(ScanResult r)
     {

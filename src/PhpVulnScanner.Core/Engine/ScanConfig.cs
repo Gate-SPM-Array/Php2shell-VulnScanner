@@ -82,6 +82,8 @@ public sealed class ScanConfig
     public string InventoryPath { get; set; } = "";
     /// <summary>v1.11: file con gli host attivi nelle sessioni precedenti (un IP per riga, es. host_attivi_vX.Y.txt): lo sweeper li riprova a ogni ciclo e chi resta muto viene segnato "noto attivo in una sessione precedente".</summary>
     public string KnownHostsPath { get; set; } = "";
+    /// <summary>v1.12: file in formato hosts (IP nome [nome…], # commenti): ogni nome viene scansionato su quell'IP con SNI e Host = nome, senza query DNS, come un browser con la voce nel file hosts. Stessa cosa con nome@IP nella lista bersagli.</summary>
+    public string HostsFilePath { get; set; } = "";
     /// <summary>Pre-controllo TCP di tutte le porte in parallelo sugli host attivi: handshake TLS e HTTP solo dove la porta risponde (porte chiuse o filtrate costano una volta sola).</summary>
     public bool PortPrecheck { get; set; } = true;
     /// <summary>v1.10: i nomi presi da Certificate Transparency entrano nei nomi scoperti solo se risolvono sull'IP in esame (resolver configurato); quelli che risolvono su un altro IP della lista vanno a quell'host.</summary>

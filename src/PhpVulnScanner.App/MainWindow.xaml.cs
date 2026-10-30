@@ -128,6 +128,7 @@ public partial class MainWindow : Window
         TxtBudget.Text = (c.ServiceBudgetMs / 1000).ToString(C);
         TxtInventory.Text = c.InventoryPath;
         TxtKnownHosts.Text = c.KnownHostsPath;
+        TxtHostsFile.Text = c.HostsFilePath;
         TxtSweepLanes.Text = c.Alive.SweepLanes.ToString(C);
         ChkPureVersion.IsChecked = c.PureVersionIsVulnerable;
         ChkAlive_Changed(this, new RoutedEventArgs());
@@ -192,6 +193,7 @@ public partial class MainWindow : Window
             ServiceBudgetMs = Math.Max(0, Int(TxtBudget, 120)) * 1000,
             InventoryPath = TxtInventory.Text.Trim(),
             KnownHostsPath = TxtKnownHosts.Text.Trim(),
+            HostsFilePath = TxtHostsFile.Text.Trim(),
             PureVersionIsVulnerable = ChkPureVersion.IsChecked == true,
         };
         if (c.DelayMaxMs < c.DelayMinMs) _configWarnings.Add(L.F("pausa massima {0} ms inferiore alla minima {1} ms: uso la minima", c.DelayMaxMs, c.DelayMinMs));
@@ -344,7 +346,10 @@ public partial class MainWindow : Window
             foreach (var r in batch)
             {
                 var row = ToRow(r);
-                if (_consolidateRows && _rowsByKey.TryGetValue(r.Key, out var old))
+                // v1.12: la stessa chiave nello stesso ciclo (anteprima della riga per IP, riemissione dello sweeper o degli host noti) sostituisce la riga:
+                // nella v1.8-v1.11 a ciclo singolo veniva aggiunta e le tessere contavano i doppioni (il report, da session.Results, era giusto).
+                // Con i cicli consolidati sostituisce sempre; con sessioni distinte un ciclo nuovo aggiunge la sua riga.
+                if (_rowsByKey.TryGetValue(r.Key, out var old) && (_consolidateRows || old.Result.Cycle == r.Cycle))
                 {
                     int i = _rows.IndexOf(old);
                     if (i >= 0) _rows[i] = row; else _rows.Add(row);
@@ -959,6 +964,12 @@ public partial class MainWindow : Window
     {
         var dlg = new OpenFileDialog { Filter = "CSV, JSON (*.csv;*.json;*.txt)|*.csv;*.json;*.txt|" + L.T("Tutti i file") + "|*.*", Title = L.T("Scegli il file di inventario (CSV o JSON)") };
         if (dlg.ShowDialog(this) == true) TxtInventory.Text = dlg.FileName;
+    }
+
+    private void BtnBrowseHostsFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Filter = L.T("Tutti i file") + "|*.*|TXT (*.txt)|*.txt", Title = L.T("Scegli il file hosts (IP nome nome…)") };
+        if (dlg.ShowDialog(this) == true) TxtHostsFile.Text = dlg.FileName;
     }
 
     private void BtnBrowseKnownHosts_Click(object sender, RoutedEventArgs e)

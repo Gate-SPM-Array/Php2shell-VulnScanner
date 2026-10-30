@@ -75,7 +75,7 @@ public static class SessionFiles
         "host_header", "name_rescan", "discovered_names", "php_surface", "surface_probe", "cycle", "history",
         "application_version", "technologies", "ncsc_status",
         "ip", "name", "same_content_names", "head_vs_get", "allowed_methods", "php_version_floor", "libraries", "components", "exposures", "fastcgi_exposed", "browser_ua", "app_version_check", "technology_statuses",
-        "same_outcome_names", "php_presence", "php_hints", "php_hint_score", "ini_hints", "verbosity_score", "verbosity_items",
+        "same_outcome_names", "php_presence", "php_hints", "php_hint_score", "ini_hints", "verbosity_score", "verbosity_items", "local_name",
     ];
 
     public static string ResultsToCsv(IEnumerable<ScanResult> results, CsvFormat csv)
@@ -98,7 +98,7 @@ public static class SessionFiles
                 csv.Escape(r.DisplayIp), csv.Escape(r.DisplayName), csv.Escape(string.Join(" ", r.SameContentNames)), csv.Escape(r.HeadVsGet), csv.Escape(r.AllowedMethods), csv.Escape(r.PhpVersionFloor),
                 csv.Escape(string.Join(" | ", r.Libraries)), csv.Escape(string.Join(" | ", r.Components)), csv.Escape(string.Join(" | ", r.Exposures)),
                 r.FastCgiExposed is null ? "" : r.FastCgiExposed.Value ? "1" : "0", csv.Escape(r.BrowserUaResult), csv.Escape(r.AppVersionCheck), csv.Escape(string.Join(" | ", r.TechnologyStatuses)),
-                csv.Escape(string.Join("; ", r.SameOutcomeNames)), r.PhpPresence, csv.Escape(string.Join("; ", r.PhpHints)), r.PhpHintScore.ToString(), csv.Escape(string.Join("; ", r.IniHints)), r.VerbosityScore.ToString(), csv.Escape(string.Join("; ", r.VerbosityItems)),
+                csv.Escape(string.Join("; ", r.SameOutcomeNames)), r.PhpPresence, csv.Escape(string.Join("; ", r.PhpHints)), r.PhpHintScore.ToString(), csv.Escape(string.Join("; ", r.IniHints)), r.VerbosityScore.ToString(), csv.Escape(string.Join("; ", r.VerbosityItems)), r.LocalName ? "1" : "0",
             }));
         }
         return sb.ToString();

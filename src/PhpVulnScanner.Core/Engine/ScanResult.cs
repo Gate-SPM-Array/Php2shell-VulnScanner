@@ -112,6 +112,8 @@ public sealed class ScanResult
     // ---- v1.3 ----
     /// <summary>Vero quando la riga è la seconda passata su un nome scoperto (Host header e SNI = <see cref="HostHeader"/>, TCP verso <see cref="Host"/>).</summary>
     public bool NameRescan { get; set; }
+    /// <summary>v1.12: riga per nome assegnato localmente (file hosts o nome@IP nella lista): nessuna query DNS, mai ripiegata su un'altra riga.</summary>
+    public bool LocalName { get; set; }
     /// <summary>Nomi raccolti da certificato (CN/SAN), Location e link, validati come nomi DNS.</summary>
     public List<string> DiscoveredNames { get; set; } = [];
     /// <summary>Superficie PHP scoperta: percorsi che esistono (stato HTTP), es. "/wp-login.php (200)".</summary>

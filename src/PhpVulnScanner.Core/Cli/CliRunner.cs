@@ -43,6 +43,7 @@ public static class CliRunner
         L.T("  --alive-parallel <n>     host in alive check insieme (8; 0 = thread)   --no-alive-retry  nessuno sweeper dei non confermati"),
         L.T("  --sweep-lanes <n>        corsie dello sweeper (4)   --known-hosts <file>  host attivi in sessioni precedenti (un IP per riga), riprovati a ogni ciclo"),
         L.T("  --sweep-tcp 443,80       porte TCP dello sweeper (predefinite: quelle dell'alive check; mai quelle della scansione)"),
+        L.T("  --hosts-file <file>      file in formato hosts (IP nome…): ogni nome scansionato su quell'IP con SNI e Host = nome, senza DNS; nella lista vale anche nome@IP"),
         L.T("  --no-level2              salta precondizioni e barriere  --no-waf   salta la rilevazione WAF/proxy"),
         L.T("  --light                  HEAD al posto di GET (meno traffico, meno segnali)"),
         L.T("  --threads <n>  --connect-timeout <ms>  --read-timeout <ms>  --resolver <ip>  --host-header <nome>"),
@@ -126,6 +127,7 @@ public static class CliRunner
                     case "--sweep-lanes": cfg.Alive.SweepLanes = Int(Next(), a); break;
                     case "--sweep-tcp": cfg.Alive.SweepTcpPorts = TargetParser.ParsePorts(Next(), out var e3); if (e3.Count > 0) throw new ArgumentException(L.F("porte non valide: {0}", string.Join(",", e3))); break;
                     case "--known-hosts": cfg.KnownHostsPath = Next(); break;
+                    case "--hosts-file": cfg.HostsFilePath = Next(); break;
                     case "--scan-not-alive": cfg.Alive.SkipIfNotAlive = false; break;
                     case "--no-level2": cfg.Level2 = false; break;
                     case "--no-waf": cfg.WafDetect = false; cfg.WafBehaviour = false; break;

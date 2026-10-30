@@ -2,6 +2,23 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.12 — 2026-10-30
+
+Via del maintainer dopo la richiesta sui servizi web dietro un IP raggiungibili solo per nome e sui server tolti dal DNS pubblico (nome distribuito con un file hosts). Nessuna richiesta in più al bersaglio: il modello "nome @ IP" esisteva già, mancava il modo di dargli i nomi.
+
+### Novità
+- **File hosts** (campo nella sezione Bersagli, `--hosts-file <file>`): file in formato hosts (`IP nome [nome…]`, `#` commenti, IPv4 e IPv6; `localhost` saltato). Ogni nome viene scansionato su quell'IP con SNI e `Host` = nome, **senza query DNS**, come un browser con la voce nel file hosts: una riga «nome @ IP» per nome, con il test `HOSTS` nella scheda. L'IP entra tra i bersagli se manca; un FQDN della lista assegnato nel file diventa il suo IP (nessuna risoluzione); un nome da certificato o da CT assegnato nel file non viene mai risolto. Funziona anche con la scoperta dei nomi spenta e sulle porte che rispondono senza HTTP sul vhost predefinito (il server può rifiutare senza il SNI giusto).
+- **`nome@IP` nella lista bersagli**: stessa cosa senza file (`app.example.org@192.0.2.10`, anche più nomi sullo stesso IP).
+- I nomi assegnati **non ripiegano mai** su un'altra riga (stesso contenuto o stesso esito): sono richieste esplicite, quindi la riga resta anche quando il nome risponde come il vhost predefinito. Nel report compatto il nome è marcato `(hosts)`; colonna `local_name` nel CSV; nota nella scheda del report completo; campo `LocalName` nei file di sessione (le sessioni precedenti si leggono come prima).
+
+### Corretto
+- **Tessere dell'interfaccia diverse dal report** (nota del maintainer sulla v1.10): a ciclo singolo, o multi-ciclo con sessioni distinte, l'anteprima della riga per IP (v1.8) e le riemissioni dello sweeper e degli host noti venivano **aggiunte** alla tabella invece di sostituire la riga con la stessa chiave: doppioni in tabella e nelle tessere "servizi" (gli host distinti e il report, da `session.Results`, erano giusti). Ora la stessa chiave nello stesso ciclo sostituisce sempre la riga.
+- Etichetta "Inventario" sovrapposta a "Host noti" (griglia con una riga in meno del necessario).
+- Testi delle caselle e delle etichette del pannello laterale tagliati dal bordo: ora vanno a capo.
+
+### Test
+- 410 test (+6, `V112Tests`): sintassi `nome@IP` (validi, errori, prima assegnazione vince), formato hosts (commenti, più nomi per riga, IPv6, righe non valide, file mancante), `Prepare` (FQDN assegnato → IP, IP del file aggiunto, nessun errore), scansione con vhost per nome sul server finto (riga per nome con verdetto diverso dalla riga per IP, test `HOSTS`, nessun test `DNS`, nome con lo stesso contenuto non ripiegato, report compatto/completo/CSV), file hosts con scoperta dei nomi spenta, opzione CLI.
+
 ## v1.11.1 — 2026-10-29
 
 Correzione urgente dopo la prova della v1.11 sulla /20 con porte di scansione estese (22, 25, 445, 1720, 3389): 3765 host "attivi" su 4094 contro i 343 reali, ciclo da 2 h invece di 55 min.

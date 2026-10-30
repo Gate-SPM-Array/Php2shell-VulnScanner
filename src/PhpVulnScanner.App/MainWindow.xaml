@@ -66,18 +66,23 @@
                     <Border Style="{StaticResource Section}">
                         <StackPanel>
                             <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="BERSAGLI"/>
-                            <TextBlock Style="{StaticResource Hint}" l:Loc.Text="Uno per riga o separati da virgola/spazio: IP, rete CIDR (192.0.2.0/24), intervallo (192.0.2.10-20), nome (FQDN). # per i commenti."/>
+                            <TextBlock Style="{StaticResource Hint}" l:Loc.Text="Uno per riga o separati da virgola/spazio: IP, rete CIDR (192.0.2.0/24), intervallo (192.0.2.10-20), nome (FQDN), nome@IP (nome scansionato su quell'IP senza DNS). # per i commenti."/>
                             <TextBox x:Name="TxtTargets" AcceptsReturn="True" Height="120" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" TextWrapping="NoWrap"
                                      l:Loc.Tip="Solo sistemi propri o con autorizzazione scritta del titolare"/>
                             <Grid Margin="0,6,0,0">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                 <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Porte TCP"/>
                                 <TextBox x:Name="TxtPorts" Grid.Column="1" l:Loc.Tip="Porte da scansionare, es. 443 oppure 443,8443 oppure 8000-8010. Porta 80 = HTTP; altre porte: HTTPS se l'handshake TLS riesce, altrimenti HTTP"/>
                                 <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="Host header (IP)"/>
                                 <TextBox x:Name="TxtHostHeader" Grid.Row="1" Grid.Column="1" l:Loc.Tip="Nome da inviare come Host e SNI quando il bersaglio è un IP (vuoto = l'IP stesso). Utile per raggiungere un vhost dietro un IP"/>
                                 <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" l:Loc.Text="Resolver DNS"/>
                                 <TextBox x:Name="TxtResolver" Grid.Row="2" Grid.Column="1" l:Loc.Tip="Resolver esplicito per i nomi (es. 1.1.1.1 o 8.8.8.8). Vuoto = resolver di sistema. Un resolver pubblico evita esiti diversi tra DNS interno ed esterno"/>
+                                <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" l:Loc.Text="File hosts"/>
+                                <DockPanel Grid.Row="3" Grid.Column="1">
+                                    <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseHostsFile_Click"/>
+                                    <TextBox x:Name="TxtHostsFile" l:Loc.Tip="Facoltativo: file in formato hosts (IP nome nome…, # commenti). Ogni nome viene scansionato su quell'IP con SNI e Host = nome, senza query DNS, come un browser con la voce nel file hosts: una riga «nome @ IP» per nome, mai ripiegata. L'IP entra tra i bersagli se manca. Nella lista vale anche nome@IP"/>
+                                </DockPanel>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -226,7 +231,7 @@
                             <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="TEMPI E USCITA"/>
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                 <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Timeout connessione (ms)"/>
                                 <TextBox x:Name="TxtConnectTimeout" Grid.Column="1"/>
                                 <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="Timeout lettura (ms)"/>

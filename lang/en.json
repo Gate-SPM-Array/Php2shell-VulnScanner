@@ -3,7 +3,7 @@
   "language": "English",
   "culture": "en-GB",
   "translators": "Claude (Anthropic)",
-  "app_version": "1.11.1",
+  "app_version": "1.12",
   "strings": {
     "  --advanced all|none|k1,k2  test avanzati (sezione Avanzate): headvsget, composer, status, appversion, fastcgi, behaviours, level2all, browserua, components, exposures, ptr, ct": "  --advanced all|none|k1,k2  advanced tests (Advanced section): headvsget, composer, status, appversion, fastcgi, behaviours, level2all, browserua, components, exposures, ptr, ct",
     "  --alive-parallel <n>     host in alive check insieme (8; 0 = thread)   --no-alive-retry  nessuno sweeper dei non confermati": "  --alive-parallel <n>     hosts in alive check at once (8; 0 = threads)   --no-alive-retry  no sweeper of unconfirmed hosts",
@@ -603,7 +603,6 @@
     "Una scansione per IP vede solo il vhost predefinito: i nomi che l'IP dichiara da solo rivelano i siti ospitati": "A scan by IP sees only the default vhost: the names the IP declares by itself reveal the hosted sites",
     "Una visita come un'altra: lascia sul server quello che lascia qualunque GET a un'applicazione con sessioni. Nessuna sessione di utenti, nessun login. Spento per impostazione predefinita": "A visit like any other: it leaves on the server what any GET to an application with sessions leaves. No user sessions, no login. Off by default",
     "Unione {0} host, intersezione {1} host": "Union {0} hosts, intersection {1} hosts",
-    "Uno per riga o separati da virgola/spazio: IP, rete CIDR (192.0.2.0/24), intervallo (192.0.2.10-20), nome (FQDN). # per i commenti.": "One per line or separated by comma/space: IP, CIDR network (192.0.2.0/24), range (192.0.2.10-20), name (FQDN). # for comments.",
     "Uso responsabile: scansionare solo sistemi propri o con autorizzazione scritta.": "Responsible use: scan only your own systems or with written authorisation.",
     "Uso: PhpVulnScanner.exe --scan <file o elenco> [opzioni]": "Usage: PhpVulnScanner.exe --scan <file or list> [options]",
     "Variante Content-Type: {0}": "Content-Type variant: {0}",
@@ -1126,6 +1125,23 @@
     "▶  Avvia scansione": "▶  Start scan",
     "▶  Riprendi": "▶  Resume",
     "❚❚  Pausa": "❚❚  Pause",
-    "🌐 Lingua": "🌐 Language"
+    "🌐 Lingua": "🌐 Language",
+    "Scegli il file hosts (IP nome nome…)": "Choose the hosts file (IP name name…)",
+    "(nome assegnato localmente: file hosts o nome@IP, nessuna query DNS)": "(locally assigned name: hosts file or name@IP, no DNS query)",
+    "nome assegnato localmente: file hosts o nome@IP, nessuna query DNS": "locally assigned name: hosts file or name@IP, no DNS query",
+    "Nomi assegnati localmente: {0} nomi su {1} IP (file hosts: {2}; nome@IP nella lista): riga per nome con SNI e Host = nome, nessuna query DNS, nessun ripiegamento": "Locally assigned names: {0} names on {1} IPs (hosts file: {2}; name@IP in the list): one row per name with SNI and Host = name, no DNS query, never folded",
+    "Nomi assegnati localmente": "Locally assigned names",
+    "{0} nomi assegnati a questo IP dal file hosts o dalla lista (nome@IP), scansionati con SNI e Host = nome senza query DNS: {1}": "{0} names assigned to this IP by the hosts file or the list (name@IP), scanned with SNI and Host = name without DNS query: {1}",
+    "Nome assegnato localmente": "Locally assigned name",
+    "{0} → {1} dal file hosts o dalla lista (nome@IP): connessione all'IP con SNI e Host = nome, nessuna query DNS, come un browser con la voce nel file hosts": "{0} → {1} from the hosts file or the list (name@IP): connection to the IP with SNI and Host = name, no DNS query, like a browser with the entry in its hosts file",
+    "file hosts, riga {0}: attesi un indirizzo IP e almeno un nome": "hosts file, line {0}: expected an IP address and at least one name",
+    "file hosts, riga {0}: nome non valido: {1}": "hosts file, line {0}: invalid name: {1}",
+    "file hosts non letto ({0}): {1}": "hosts file not read ({0}): {1}",
+    "nome@IP: il nome non è valido": "name@IP: the name is not valid",
+    "nome@IP: dopo @ serve un indirizzo IP": "name@IP: an IP address must follow @",
+    "  --hosts-file <file>      file in formato hosts (IP nome…): ogni nome scansionato su quell'IP con SNI e Host = nome, senza DNS; nella lista vale anche nome@IP": "  --hosts-file <file>      file in hosts format (IP name…): every name scanned on that IP with SNI and Host = name, no DNS; name@IP also works in the list",
+    "Uno per riga o separati da virgola/spazio: IP, rete CIDR (192.0.2.0/24), intervallo (192.0.2.10-20), nome (FQDN), nome@IP (nome scansionato su quell'IP senza DNS). # per i commenti.": "One per line or separated by comma/space: IP, CIDR network (192.0.2.0/24), range (192.0.2.10-20), name (FQDN), name@IP (name scanned on that IP without DNS). # for comments.",
+    "File hosts": "Hosts file",
+    "Facoltativo: file in formato hosts (IP nome nome…, # commenti). Ogni nome viene scansionato su quell'IP con SNI e Host = nome, senza query DNS, come un browser con la voce nel file hosts: una riga «nome @ IP» per nome, mai ripiegata. L'IP entra tra i bersagli se manca. Nella lista vale anche nome@IP": "Optional: file in hosts format (IP name name…, # comments). Every name is scanned on that IP with SNI and Host = name, without DNS query, like a browser with the entry in its hosts file: one \"name @ IP\" row per name, never folded. The IP joins the targets if missing. name@IP also works in the list"
   }
 }
