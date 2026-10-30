@@ -2,6 +2,120 @@
 
 Regola: ogni versione consegnata ha un numero diverso; anche una modifica minima del codice produce una nuova versione con la sua voce qui sotto.
 
+## v1.12 — 2026-10-30
+
+Via del maintainer dopo la richiesta sui servizi web dietro un IP raggiungibili solo per nome e sui server tolti dal DNS pubblico (nome distribuito con un file hosts). Nessuna richiesta in più al bersaglio: il modello "nome @ IP" esisteva già, mancava il modo di dargli i nomi.
+
+### Novità
+- **File hosts** (campo nella sezione Bersagli, `--hosts-file <file>`): file in formato hosts (`IP nome [nome…]`, `#` commenti, IPv4 e IPv6; `localhost` saltato). Ogni nome viene scansionato su quell'IP con SNI e `Host` = nome, **senza query DNS**, come un browser con la voce nel file hosts: una riga «nome @ IP» per nome, con il test `HOSTS` nella scheda. L'IP entra tra i bersagli se manca; un FQDN della lista assegnato nel file diventa il suo IP (nessuna risoluzione); un nome da certificato o da CT assegnato nel file non viene mai risolto. Funziona anche con la scoperta dei nomi spenta e sulle porte che rispondono senza HTTP sul vhost predefinito (il server può rifiutare senza il SNI giusto).
+- **`nome@IP` nella lista bersagli**: stessa cosa senza file (`app.example.org@192.0.2.10`, anche più nomi sullo stesso IP).
+- I nomi assegnati **non ripiegano mai** su un'altra riga (stesso contenuto o stesso esito): sono richieste esplicite, quindi la riga resta anche quando il nome risponde come il vhost predefinito. Nel report compatto il nome è marcato `(hosts)`; colonna `local_name` nel CSV; nota nella scheda del report completo; campo `LocalName` nei file di sessione (le sessioni precedenti si leggono come prima).
+
+### Corretto
+- **Tessere dell'interfaccia diverse dal report** (nota del maintainer sulla v1.10): a ciclo singolo, o multi-ciclo con sessioni distinte, l'anteprima della riga per IP (v1.8) e le riemissioni dello sweeper e degli host noti venivano **aggiunte** alla tabella invece di sostituire la riga con la stessa chiave: doppioni in tabella e nelle tessere "servizi" (gli host distinti e il report, da `session.Results`, erano giusti). Ora la stessa chiave nello stesso ciclo sostituisce sempre la riga.
+- Etichetta "Inventario" sovrapposta a "Host noti" (griglia con una riga in meno del necessario).
+- Testi delle caselle e delle etichette del pannello laterale tagliati dal bordo: ora vanno a capo.
+
+### Test
+- 410 test (+6, `V112Tests`): sintassi `nome@IP` (validi, errori, prima assegnazione vince), formato hosts (commenti, più nomi per riga, IPv6, righe non valide, file mancante), `Prepare` (FQDN assegnato → IP, IP del file aggiunto, nessun errore), scansione con vhost per nome sul server finto (riga per nome con verdetto diverso dalla riga per IP, test `HOSTS`, nessun test `DNS`, nome con lo stesso contenuto non ripiegato, report compatto/completo/CSV), file hosts con scoperta dei nomi spenta, opzione CLI.
+
+## v1.11.1 — 2026-10-29
+
+Correzione urgente dopo la prova della v1.11 sulla /20 con porte di scansione estese (22, 25, 445, 1720, 3389): 3765 host "attivi" su 4094 contro i 343 reali, ciclo da 2 h invece di 55 min.
+
+### Corretto
+- **Lo sweeper usava le porte della scansione come prova di vita** (scelta ereditata dalla seconda chance v1.8). Il perimetro accetta la connessione su TCP/1720 per qualunque indirizzo della rete: 3556 host "recuperati" tutti via 1720, poi 4302 handshake TLS da 5 s a vuoto. Ora lo sweeper usa **ICMP e le porte TCP dell'alive check** (campo "TCP, porte"; da console `--sweep-tcp` per porte diverse), mai quelle della scansione.
+- **Avviso "porta del perimetro"**: se una porta TCP dell'alive check conferma almeno metà degli host di una rete (almeno 64 indirizzi, almeno 32 host), il log e il report compatto lo dicono con il consiglio di toglierla.
+
+### Test
+- 404 test (+2): sweeper senza porte di scansione (host muto resta muto; con `--sweep-tcp` rientra), avviso porta del perimetro (soglie, solo TCP, nel report).
+
+## v1.11 — 2026-10-29
+
+Via del maintainer dopo il giro notturno della v1.10 sulla /20 (16 thread, 8 cicli: 54-59 min per ciclo, zero errori) e la sua proposta di un alive check continuo in parallelo alla scansione. Nessuna richiesta HTTP in più al bersaglio.
+
+### Novità
+- **Sweeper dell'alive check** (proposta del maintainer): un task a parte riprova a ritmo lento, per tutta la durata del ciclo, gli host non confermati attivi (ICMP + TCP sulle porte della scansione, timeout 1,5×, corsie proprie: campo "corsie", predefinito 4, `--sweep-lanes`); chi risponde entra **subito** nella coda del ciclo in corso (dopo i nomi, prima degli host nuovi) e la riga "Non raggiungibile" viene sostituita. Primo giro su tutti i non confermati (anche dal ciclo 2); i giri successivi solo sugli host visti attivi nel loop o noti; alla fine della passata un ultimo giro sui non confermati mai riprovati nel ciclo. Sostituisce la seconda chance a fine ciclo delle v1.8-v1.10 (`--no-alive-retry` la spegne). Motivo: un host rimasto muto nella passata principale (sulla /20: un host attivo dato muto per 8 cicli perché una seconda istanza dallo stesso IP ne occupava le connessioni) rientra appena risponde, non al ciclo dopo.
+- **Host noti** (campo nella sezione Bersagli, `--known-hosts <file>`): file con gli host attivi nelle sessioni precedenti, un IP per riga (es. `host_attivi_vX.Y.txt` della sessione prima). Lo sweeper li riprova a ogni ciclo; chi resta muto ha il test `KNOWN-HOST` nella scheda ("attivo in una sessione precedente, nessuna risposta in questa"), così un host che sparisce è un'informazione, non un buco.
+
+### Corretto
+- I nomi da CT dirottati verso un host **già analizzato** si perdevano (486 su 873 nella notte della v1.10): ora restano in memoria tra un ciclo e l'altro e vengono provati al ciclo successivo.
+- Conteggio dei recuperati nel log ("7 recuperati su 6": contava anche gli host attivi finiti durante la seconda chance): ora conta solo gli host recuperati dallo sweeper e i tentativi fatti.
+- Stato della riga di comando (`--merge`, `--save-config`, `--analysis-bundle`) per thread: chiamate parallele a `Parse` (test) non si pestano più.
+
+### Test
+- 402 test (+4, `V111Tests`): sweeper che recupera gli host durante il ciclo con conteggio esatto, sweeper spento, host noti (test `KNOWN-HOST`, riprovati in ogni ciclo), opzioni CLI. Test v1.8-v1.10 della seconda chance adeguati alle righe dello sweeper.
+
+## v1.10 — 2026-10-28
+
+Via del maintainer dopo il giro notturno della v1.9 sulla /20 (6 thread, 5 cicli) e le note sul report. Nessuna richiesta in più al bersaglio: una query DNS per nome da CT.
+
+### Corretto
+- **Rumore dei nomi da Certificate Transparency.** Nella /20 l'80% del tempo dei thread andava alla seconda passata sui nomi (ciclo 1: 3,0 h sulle righe per IP, 11,7 h su 1715 servizi per nome) e il 77-80% di quei nomi ripiegava su "stesso contenuto": nomi del dominio presi da crt.sh che non vivono su quell'IP (353 host arrivavano al tetto di 10). Ora i nomi da CT entrano nei nomi scoperti **solo se risolvono (A/AAAA, resolver configurato) sull'IP in esame**; se risolvono su un altro IP della lista bersagli vengono dirottati a quell'host (se non è già stato analizzato); gli altri restano tracciati nella scheda (test `ADV-HOST-CT-DNS`, campo `CtNamesElsewhere`), non riscansionati. Casella "Nomi da Certificate Transparency solo se risolvono sull'IP in esame", `--no-ct-dns`.
+- **Seconda chance**: corsie fisse a 16 (con 6 thread la v1.9 ne aveva 4: 35 min per ciclo su 3750 host); dal ciclo 2 in poi si riprovano solo gli host visti attivi almeno una volta nel loop (il primo ciclo li prova tutti). Nel log il numero di host esclusi.
+- **Connessione chiusa dal perimetro**: ~37 host per ciclo, sempre gli stessi, chiudevano la connessione con RST durante il TLS sulla 443 e finivano in "Non raggiungibile: nessuna risposta HTTP". Ora la motivazione dice "connessione chiusa dal perimetro durante il TLS (probabile IPS: l'host esiste)" e la scheda ha il test `L1-RESET`.
+- **Colonna Nomi del report compatto**: la v1.8 le aveva dato un limite di larghezza con spezzatura ovunque e il browser la schiacciava a quattro caratteri. Ora un nome per riga, mai spezzato (tabelle "Da tenere in considerazione", "Host attivi", "PHP sospetto", "Loquacità", "Esposizioni").
+- **Rigenerazione del report**: `elenco_vX.Y.csv` e `results_cN.csv` venivano sovrascritti; ora prendono lo stesso suffisso `_2`, `_3` dei report, e il log dice "nuova copia N: i report e i CSV precedenti restano".
+
+### Novità
+- **Configurazione su file**: pulsanti **Salva config…** / **Carica config…** (JSON con tutti i parametri; si può caricare anche il `session.json` di una sessione) e da console `--config <file>` (le opzioni esplicite vincono) e `--save-config <file>` (scrive e termina senza scansione).
+- **Pacchetto per analisi**: in "Esporta log…" la voce "Pacchetto per analisi senza corpi (*.zip)" e da console `--analysis-bundle`: zip della cartella di sessione con `results.json` e `results.jsonl` senza i corpi delle risposte (al posto del corpo: lunghezza e SHA-256), più log, CSV, report, file degli host; `samples.json` escluso. Gli zip di sessione in debug pesavano 60-700 MB; così stanno in pochi MB e passano i limiti di upload.
+
+### Test
+- 398 test (+8, `V110Tests`): sorte dei nomi da CT (qui, dirottato, già analizzato, altrove), seconda chance dal ciclo 2 solo per host visti attivi, reset dal perimetro, colonna Nomi, suffissi sui CSV rigenerati, configurazione da file e da `session.json` con opzioni esplicite vincenti e `--save-config`, pacchetto per analisi (corpi rimossi, JSON valido, righe del jsonl conservate, samples escluso).
+
+## v1.9 — 2026-10-24
+
+Via del maintainer dopo il giro della v1.8 sulla /22 (2 cicli): la seconda chance recuperava 3-4 host su 914 ma costava 11,5 min per ciclo su 27 (4 corsie × timeout 3 s), e tutta a fine ciclo. Versione per il giro notturno sulla /20 e sulla /22.
+
+### Modificato
+- **Seconda chance più leggera e anticipata**: corsie = metà dei thread (minimo 4, mai più dei thread) invece di 4 fisse; timeout 1,5× invece di 2×; parte **appena la coda degli host si svuota**, servita dai lavoratori liberi mentre gli ultimi nomi finiscono; gli host ancora in corso in quel momento vengono riprovati in coda alla fine. Stima sulla /22 con 16 thread: 2-3 min invece di 11,5, stessi host recuperati. Il log dice quanti host entrano in seconda chance e quanti vengono recuperati.
+- Un host entra nella seconda chance solo dopo che le sue righe "Non raggiungibile" sono uscite, così la riemissione le sostituisce sempre.
+
+### Test
+- 390 test (+3, `V19Tests`): timeout 1,5× nel log, seconda chance che parte con la coda degli host vuota mentre un host è ancora in corso (host in ritardo recuperato in coda), corsie calcolate dai thread.
+
+## v1.8 — 2026-10-24
+
+Costruita sulle note del maintainer durante le prove della v1.7 sulla /20 (giro "tirato" a 36 thread e giro a 16 thread) e su una regola sua sul consolidamento. Nessuna sonda in più sugli host che rispondono.
+
+### Corretto
+- **Alive check sotto burst**: con 36 thread ogni host apriva insieme ICMP + 6 TCP + 6 UDP (~470 flussi in volo) e tutti gli host andavano in timeout fin dai primi secondi (71 attivi su 4094 contro ~280). Ora l'alive check ha un **tetto separato** (campo "Host in parallelo", predefinito 8, `--alive-parallel`), indipendente dai thread HTTP.
+- **Seconda chance a fine ciclo** (casella, `--no-alive-retry` per spegnerla): gli host non confermati vengono riprovati una volta, al massimo 4 alla volta, con ICMP + TCP sulle porte della scansione e timeout doppio; chi risponde viene scansionato per intero e la riga "Non raggiungibile" viene sostituita (stessa chiave, storia del ciclo aggiornata, entrambe le osservazioni nel `results.jsonl`). Un ciclo tirato non perde host per sempre.
+- **Sonde annullate non attese**: dopo la conferma (TCP/443 in 18 ms) la fase alive durava comunque 1,2 s aspettando il ping annullato; sulla /20 ~6 min di thread per ciclo. Ora le sonde annullate sono registrate con il tempo trascorso e lasciate morire in sfondo.
+- **Nomi in coda dietro gli host (regressione della v1.7)**: i lavori sui nomi aspettavano sul semaforo dietro migliaia di host (16 min misurati) e il thread dell'host altri 18 min per riprendere il posto: la riga in tabella restava con Nome vuoto per mezz'ora. La passata ora gira con **lavoratori e coda a priorità** (prima i nomi, poi gli host nuovi) e la chiusura dell'host è una continuazione accodata dall'ultimo nome: nessun lavoratore fermo, righe definitive pochi minuti dopo l'anteprima.
+- **Certificate Transparency** interrogava il dominio registrabile a due etichette (`example.it`): troppo largo, crt.sh non rispondeva. Ora prima il sottodominio più frequente tra i nomi (`ente.example.it`), poi il registrabile solo se vuoto.
+- **"PHP forse" nei filtri** era in AND con la tendina Verdetto (con "Non determinabili" selezionato spariva tutto): ora è una voce del gruppo Verdetto, in OR con gli altri riquadri.
+
+### Novità
+- **Consolidamento per campo** (regola del maintainer: il più informativo vince solo se contiene anche le informazioni dell'altro, altrimenti si fonde): la riga base resta la più informativa, ma versione, SAPI, applicazione, barriera, certificato, WAF, elenchi (nomi, superficie, tecnologie, esposizioni, indizi…) che ha solo l'altro ciclo vengono presi; verdetto e priorità ricalcolati sui campi fusi; ciclo e orario dell'ultima osservazione; test `MERGE` con i campi presi e il ciclo di provenienza. Vale anche per "Fondi sessioni". I file restano leggibili all'indietro.
+- **Elenco per Excel** in fondo al report compatto e in `elenco_vX.Y.csv`: tutti i servizi in evidenza (vulnerabili, probabilmente vulnerabili, mitigati, non determinabili, PHP forse), un solo nome per riga con il conteggio degli altri, 14 colonne brevi senza a capo (IP, Nome, Altri nomi, Porta, Verdetto, Priorità, PHP, Versione, SAPI, App, Barriera, WAF, Referente, Ciclo), ordine per priorità; nel report le prime 300 righe, nel CSV tutte.
+- Tabella "Da tenere in considerazione": colonne brevi senza a capo, Nomi limitata, Motivazione più larga; stato NCSC-NL abbreviato ("affetto: dipende dalla versione di PHP") con la frase intera nel suggerimento.
+
+### Test
+- 387 test (+13, `V18Tests`): seconda chance (riga sostituita, consolidato con una riga di storia per ciclo, spenta), CLI, sonde annullate non attese, nomi prima dell'host successivo (1 thread, 2 host), fusione per campo (campi presi, MERGE, verdetto ricalcolato, orario dell'ultima osservazione, stesso ciclo), CT sottodominio, NCSC breve, elenco per Excel (nome unico, altri nomi, forse, CSV, tetto nel report, file scritto accanto ai report).
+
+## v1.7 — 2026-10-24
+
+Prima versione costruita da Claude Code sul repository. Via del maintainer dato in serata dopo le prove della v1.6 su una /22 (1022 host, 32 thread, 5 cicli consolidati, Massima detection). Nessuna richiesta HTTP in più; nessun test in meno.
+
+### Corretto
+- **Coda del ciclo su un thread solo.** La seconda passata sui nomi scoperti girava in sequenza sul thread dell'host: 10 nomi × 2 porte × 60-120 s = 20-28 min per ciascuno dei cinque host più "ricchi" della /22, e a fine ciclo un solo thread al lavoro per ~17 min su 37 (i nomi ripiegati non compaiono in `results.json` ma costano lo stesso). Ora ogni coppia nome/porta prende un posto nel pool dei thread della passata (il thread dell'host cede il suo mentre aspetta): il numero di richieste in volo resta quello configurato, il ripiegamento (stesso contenuto, stesso esito) resta sequenziale e nell'ordine dei nomi, l'esito è identico.
+- **Righe per IP in anteprima.** Le righe di un host uscivano tutte insieme alla fine dell'host, nomi compresi: nel ciclo 1 della /22 il riquadro "Vulnerabili per versione" diceva 4 fino alla fine del ciclo e 7 un attimo dopo (tre righe stavano sull'host con 10 nomi). Ora le righe per IP vanno in tabella appena complete e vengono riemesse (stessa chiave) a fine host con i nomi ripiegati; i file di sessione ricevono solo la riga definitiva.
+- **Catch-all 5xx con la radice in redirect.** La regola v1.6 chiedeva lo stesso 5xx anche su `/`; sulla /22 un servizio rispondeva 302 su `/` e 503 (stesso corpo di 299 byte) su `index.php`, sul file inesistente e su tutti i 40 punti di ingresso provati a 1 s l'uno. Le pagine in redirect ora non contano nel confronto: superficie e sonde su percorso si fermano (`L1-SURFACE-PROBE`, `ADV-SKIP`) se le pagine restanti e il file inesistente danno lo stesso 5xx.
+
+### Novità
+- **"PHP forse" in evidenza**: riga in lilla nella tabella principale; riquadro **PHP forse** (servizi, sotto gli host) cliccabile come filtro (secondo clic: tutti); il riquadro "PHP non rilevato" non porta più la nota "di cui N con indizi". Nel report compatto il riquadro "PHP sospetto" è lilla, un richiamo nel riepilogo dice quanti servizi e host, e la sezione **PHP sospetto** sta subito dopo "Da tenere in considerazione" (prima degli host attivi); nel report completo le righe "forse" della tabella sono in lilla.
+
+### Note
+- `scan.log` e `results.jsonl` "indietro" in Esplora file: i due file sono aperti in append con scrittura immediata; è Esplora file di Windows che non aggiorna dimensione e data dei file tenuti aperti. Aprendoli con un editor il contenuto è aggiornato.
+
+### Strumenti
+- `tools/package.sh`: `dotnet` dal PATH e cartella di uscita `OUT=<dir>` (funziona in Claude Code); i pattern dei dati cliente stanno in `tools/private-patterns.txt`, escluso da git, invece che nello script; `Trascrizioni/` esclusa dallo zip dei sorgenti.
+
+### Test
+- 374 test (+7, `V17Tests`): nomi in parallelo con lo stesso ripiegamento (tempo misurato sul server finto con ritardo), anteprima e riemissione della riga per IP, nessuna anteprima senza nomi, interruzione durante la passata sui nomi, catch-all con radice in redirect (unità e motore), "forse" nei due report. `FakePhpServer`: ritardo per risposta, redirect per percorso, vhost per qualunque nome, radice in redirect con il resto 5xx.
+
 ## v1.6 — 2026-10-24
 
 Versione "definitiva" richiesta dal maintainer (via alle 17:11), costruita su tre cose: le cinque attività utili ricavate da uno script Python di terzi (PHP Evidence Scanner 0.1.8), l'analisi dei due zip del pomeriggio (/20 con la v1.4.1 in due cicli, /22 con la v1.5) e la ricerca su CVE-2026-115560. Nessun esploit, nessuna richiesta che scriva stato: l'unica richiesta in più è la GET facoltativa dell'adozione dell'ID di sessione, spenta per impostazione predefinita.

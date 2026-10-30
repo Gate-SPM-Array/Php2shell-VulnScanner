@@ -1,0 +1,61 @@
+PHP Vuln Scanner v1.12 (2026-10-30) - programma portable per Windows x64
+
+1. Estrarre la cartella dove si preferisce (anche su chiavetta). Tenere insieme PhpVulnScanner.exe, lang\ e data\.
+2. Avviare PhpVulnScanner.exe (nessuna installazione, nessun runtime .NET da installare).
+3. Scrivere i bersagli (IP, reti CIDR, intervalli, nomi), controllare le porte (443); tutto cio' che riguarda lo strato PHP
+   (percorsi, livelli, superficie, nomi, test aggiuntivi) sta nella sezione "Detection PHP" (pulsanti Nessuno / Predefiniti /
+   Massima detection); premere "Avvia scansione".
+4. Alla fine: report compatto (pulsante "Report HTML") e report completo nella cartella Sessioni\, file host_attivi_v1.12.txt
+   per OpenVAS, esportazione log/CSV/JSON/host con "Esporta log...".
+5. Guida completa: tasto F1 (Guida_PhpVulnScanner_v1.12.html, in inglese Guide_...).
+6. Riga di comando senza finestra: PhpVulnScanner.exe --scan bersagli.txt [opzioni]; --help per l'elenco; codici di uscita 0/1/2/3/4.
+   Esempi: PhpVulnScanner.exe --scan 192.0.2.0/20 --ports 443,80,8080,8085,8443 --cycles 5 --cycle-pause 300 --random --delay 50-250 --rate 20 --threads 8 --advanced all
+           PhpVulnScanner.exe --merge D:\scansioni\sessioneA D:\scansioni\sessioneB --out D:\scansioni
+
+Novita' della v1.12: campo "File hosts" (--hosts-file) e sintassi nome@IP nella lista bersagli: ogni nome viene scansionato
+su quell'IP con SNI e Host = nome, senza query DNS, come un browser con la voce nel file hosts (una riga "nome @ IP" per nome,
+mai ripiegata): per i servizi web dietro un IP raggiungibili solo per nome e per i server tolti dal DNS pubblico. Corretti i
+doppioni nelle tessere dell'interfaccia a ciclo singolo (il report era giusto), l'etichetta Inventario sovrapposta a Host noti
+e i testi tagliati nel pannello laterale.
+
+Correzione della v1.11.1: lo sweeper dell'alive check usa le porte TCP dell'alive check (mai quelle della scansione: un perimetro
+che rispondeva su TCP/1720 per ogni indirizzo rendeva "attivi" 3556 host su 4094); avviso "porta del perimetro" nel log e nel report.
+
+Novita' della v1.11: sweeper continuo dell'alive check (riprova i non confermati per tutto il ciclo, chi risponde entra
+subito nel ciclo in corso; corsie configurabili, --sweep-lanes); campo "Host noti" dalle sessioni precedenti (--known-hosts,
+host muti segnalati nella scheda); nomi da CT dirottati ricordati tra i cicli; conteggio dei recuperati corretto.
+
+Novita' della v1.10: i nomi da Certificate Transparency entrano solo se risolvono sull'IP in esame (verifica DNS: via il
+rumore e le ore perse sui nomi ospitati altrove); seconda chance su 16 corsie e dal ciclo 2 solo per gli host visti attivi;
+esito "connessione chiusa dal perimetro" per gli host dietro IPS; colonna Nomi un nome per riga; CSV rigenerati con suffisso;
+Salva/Carica config (anche --config / --save-config); pacchetto per analisi senza corpi (Esporta log... / --analysis-bundle).
+
+Novita' della v1.9: seconda chance dell'alive check piu' leggera (meta' dei thread, timeout 1,5x) e anticipata (parte appena
+la coda degli host si svuota): sulla /22 costava 11,5 minuti per ciclo, ora pochi minuti, stessi host recuperati.
+
+Novita' della v1.8: tetto separato per l'alive check ("Host in parallelo", predefinito 8) e seconda chance a fine ciclo per gli
+host non confermati; coda a priorita' (nomi prima degli host nuovi); consolidamento campo per campo tra i cicli; "PHP forse" in OR
+nei filtri; elenco per Excel in fondo al report compatto e in elenco_v1.12.csv; Certificate Transparency sul sottodominio.
+
+Novita' della v1.7: seconda passata sui nomi scoperti in parallelo (prima in sequenza per host: la coda di ogni ciclo era un
+thread solo); righe per IP in tabella prima dei nomi; catch-all 5xx anche quando "/" risponde con un redirect; "PHP forse" in
+evidenza (righe in lilla, riquadro "PHP forse" come filtro, sezione in alto nel report compatto).
+
+Novita' della v1.4 (costruita sull'analisi dei sei cicli notturni sulla /20 con la v1.3.1):
+- sezione "Avanzate": dodici test aggiuntivi in sola lettura (HEAD contro GET e OPTIONS, Composer, pagine di stato, file di versione
+  delle applicazioni, sonda FastCGI 9000, comportamenti di PHP, livello 2 su ogni .php, User-Agent da browser, componenti,
+  esposizioni accessorie, PTR, Certificate Transparency), con costo in richieste indicato per ciascuno;
+- pulsante Pausa / Riprendi; pre-controllo TCP delle porte in parallelo; nomi con lo stesso contenuto del vhost predefinito
+  senza riga doppia; colonne Bersaglio (IP) e Nome (FQDN) separate; riquadri che contano servizi e host; barra orizzontale;
+- rami fuori supporto con numero puro (7.4.33, 8.0.30, 8.1.14...) = "Vulnerabile per versione"; SAPI: il banner prevale sulla sonda;
+- report compatto report_v1.4.html (solo cio' che ha qualcosa da dire) + report_completo_v1.4.html con la sezione "Per ciclo";
+- file host_attivi / host_http / nomi_scoperti (un IP per riga, unione di tutti i cicli), pronti per OpenVAS;
+- "Fondi sessioni...": fusione di sessioni sugli stessi range, anche di versioni diverse, con report delle differenze;
+- "Aggiorna dati...": firme webappanalyzer e inventario NCSC-NL aggiornati da GitHub; stato VEX per tutte le tecnologie.
+
+Uso responsabile: scansionare solo sistemi propri o con autorizzazione scritta del titolare.
+Lo scanner non contiene codice di sfruttamento: rileva versione dichiarata, barriere al perimetro e WAF/proxy;
+senza versione dichiarata il verdetto resta "Non determinabile" e la prova va cercata sull'host.
+
+Al primo avvio SmartScreen di Windows puo' chiedere conferma (eseguibile non firmato): "Ulteriori informazioni" > "Esegui comunque".
+Lingua: pulsante "Lingua" (italiano/inglese), applicata al riavvio.

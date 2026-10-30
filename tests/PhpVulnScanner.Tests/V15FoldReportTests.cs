@@ -231,14 +231,14 @@ public class V15FoldReportTests : IDisposable
         string attention = html[att..exp];
         foreach (var n in new[] { "n01.example.org", "n08.example.org", "n09.example.org", "shop.example.org", "example.org" }) Assert.Contains(n, attention);
         int hosts = html.IndexOf("<h2>Host attivi</h2>", StringComparison.Ordinal), sus = html.IndexOf("<h2>PHP sospetto</h2>", StringComparison.Ordinal);
-        Assert.True(hosts > 0 && sus > hosts);
-        string hostTable = html[hosts..sus];
+        Assert.True(sus > 0 && hosts > sus);   // v1.7: "PHP sospetto" sta prima degli host attivi
+        int loq = html.IndexOf("<h2>Loquacit", StringComparison.Ordinal);
+        string hostTable = html[hosts..loq];
         Assert.Contains("n08.example.org", hostTable); Assert.Contains("n09.example.org", hostTable); Assert.Contains("shop.example.org", hostTable);
         Assert.DoesNotContain("+5", hostTable); Assert.DoesNotContain("+6", hostTable);
         // PHP sospetto: solo b, con punteggio e indizi
-        int loq = html.IndexOf("<h2>Loquacit", StringComparison.Ordinal);
-        Assert.True(loq > sus);
-        string suspect = html[sus..loq];
+        Assert.True(loq > hosts);
+        string suspect = html[sus..hosts];
         Assert.Contains("192.0.2.11", suspect); Assert.DoesNotContain("192.0.2.12", suspect); Assert.DoesNotContain("192.0.2.10", suspect);
         Assert.Contains("wordpress_test_cookie", suspect); Assert.Contains("WAF: Cloudflare", suspect);
         Assert.Contains("prima di escluderli", suspect);

@@ -41,6 +41,10 @@
                             l:Loc.Tip="Fonde due o più sessioni sugli stessi range (anche di versioni diverse) in una nuova sessione: vince il risultato più informativo, con la storia per sessione e il report delle differenze"/>
                     <Button x:Name="BtnUpdateData" l:Loc.Text="Aggiorna dati…" Click="BtnUpdateData_Click"
                             l:Loc.Tip="Scarica da GitHub le firme delle tecnologie (webappanalyzer) e l'inventario NCSC-NL aggiornati nella cartella data\ (richiede accesso a internet)"/>
+                    <Button x:Name="BtnSaveConfig" l:Loc.Text="Salva config…" Click="BtnSaveConfig_Click"
+                            l:Loc.Tip="Salva tutti i parametri della scansione in un file JSON, riusabile dall'interfaccia (Carica config…) e da riga di comando (--config)"/>
+                    <Button x:Name="BtnLoadConfig" l:Loc.Text="Carica config…" Click="BtnLoadConfig_Click"
+                            l:Loc.Tip="Carica i parametri da un file JSON salvato con «Salva config…» oppure dal session.json di una sessione"/>
                     <Rectangle Width="1" Fill="{StaticResource Line}" Margin="6,2,12,2"/>
                     <Button x:Name="BtnLanguage" Click="BtnLanguage_Click" l:Loc.Text="🌐 Lingua" l:Loc.Tip="Lingua dell'interfaccia (applicata al riavvio)"/>
                     <Button x:Name="BtnHelp" l:Loc.Text="?  Guida (F1)" Command="ApplicationCommands.Help" l:Loc.Tip="Apre la guida completa nel browser"/>
@@ -62,18 +66,23 @@
                     <Border Style="{StaticResource Section}">
                         <StackPanel>
                             <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="BERSAGLI"/>
-                            <TextBlock Style="{StaticResource Hint}" l:Loc.Text="Uno per riga o separati da virgola/spazio: IP, rete CIDR (192.0.2.0/24), intervallo (192.0.2.10-20), nome (FQDN). # per i commenti."/>
+                            <TextBlock Style="{StaticResource Hint}" l:Loc.Text="Uno per riga o separati da virgola/spazio: IP, rete CIDR (192.0.2.0/24), intervallo (192.0.2.10-20), nome (FQDN), nome@IP (nome scansionato su quell'IP senza DNS). # per i commenti."/>
                             <TextBox x:Name="TxtTargets" AcceptsReturn="True" Height="120" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" TextWrapping="NoWrap"
                                      l:Loc.Tip="Solo sistemi propri o con autorizzazione scritta del titolare"/>
                             <Grid Margin="0,6,0,0">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                 <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Porte TCP"/>
                                 <TextBox x:Name="TxtPorts" Grid.Column="1" l:Loc.Tip="Porte da scansionare, es. 443 oppure 443,8443 oppure 8000-8010. Porta 80 = HTTP; altre porte: HTTPS se l'handshake TLS riesce, altrimenti HTTP"/>
                                 <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="Host header (IP)"/>
                                 <TextBox x:Name="TxtHostHeader" Grid.Row="1" Grid.Column="1" l:Loc.Tip="Nome da inviare come Host e SNI quando il bersaglio è un IP (vuoto = l'IP stesso). Utile per raggiungere un vhost dietro un IP"/>
                                 <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" l:Loc.Text="Resolver DNS"/>
                                 <TextBox x:Name="TxtResolver" Grid.Row="2" Grid.Column="1" l:Loc.Tip="Resolver esplicito per i nomi (es. 1.1.1.1 o 8.8.8.8). Vuoto = resolver di sistema. Un resolver pubblico evita esiti diversi tra DNS interno ed esterno"/>
+                                <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" l:Loc.Text="File hosts"/>
+                                <DockPanel Grid.Row="3" Grid.Column="1">
+                                    <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseHostsFile_Click"/>
+                                    <TextBox x:Name="TxtHostsFile" l:Loc.Tip="Facoltativo: file in formato hosts (IP nome nome…, # commenti). Ogni nome viene scansionato su quell'IP con SNI e Host = nome, senza query DNS, come un browser con la voce nel file hosts: una riga «nome @ IP» per nome, mai ripiegata. L'IP entra tra i bersagli se manca. Nella lista vale anche nome@IP"/>
+                                </DockPanel>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -85,7 +94,7 @@
                                       l:Loc.Tip="Esegue l'alive check e ne registra l'esito. Cosa fare con i bersagli non confermati lo decide la casella «Salta…» qui sotto"/>
                             <Grid x:Name="PanelAlive" Margin="0,2,0,0">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                 <CheckBox x:Name="ChkIcmp" Grid.ColumnSpan="2" l:Loc.Text="ICMP (ping): su Windows non servono privilegi" IsChecked="True"/>
                                 <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="TCP, porte"/>
                                 <TextBox x:Name="TxtAliveTcp" Grid.Row="1" Grid.Column="1" l:Loc.Tip="Porte TCP da provare (vuoto = nessun test TCP). Anche un rifiuto esplicito (RST) prova che l'host è attivo"/>
@@ -93,6 +102,10 @@
                                 <TextBox x:Name="TxtAliveUdp" Grid.Row="2" Grid.Column="1" l:Loc.Tip="Porte UDP, stessa sintassi del campo TCP (es. 53,123); vuoto = nessun test UDP. Confermano l'host solo con una risposta o un ICMP port unreachable: il silenzio non significa spento"/>
                                 <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" l:Loc.Text="Timeout (ms)"/>
                                 <TextBox x:Name="TxtAliveTimeout" Grid.Row="3" Grid.Column="1"/>
+                                <TextBlock Grid.Row="4" Style="{StaticResource Lbl}" l:Loc.Text="Host in parallelo"/>
+                                <TextBox x:Name="TxtAliveParallel" Grid.Row="4" Grid.Column="1" l:Loc.Tip="Host in alive check contemporaneamente (predefinito 8; 0 = quanti i thread). Ogni host apre insieme ICMP, TCP e UDP: con molti thread il burst iniziale faceva andare in timeout anche gli host attivi. Indipendente dai thread HTTP"/>
+                                <CheckBox x:Name="ChkAliveRetry" Grid.Row="5" Grid.ColumnSpan="2" l:Loc.Text="Sweeper continuo: riprova i non confermati per tutto il ciclo, corsie:" IsChecked="True" l:Loc.Tip="Un task a parte riprova a ritmo lento, per tutta la durata del ciclo, gli host non confermati attivi (ICMP + le porte TCP dell'alive check qui sopra, mai quelle della scansione; timeout 1,5×); chi risponde entra subito nel ciclo e la riga «Non raggiungibile» viene sostituita. Primo giro su tutti; poi solo sugli host visti attivi nel loop o noti. Corsie = host riprovati insieme (predefinito 4). Da console --sweep-tcp per porte diverse"/>
+                                <TextBox x:Name="TxtSweepLanes" Grid.Row="5" Grid.Column="1" HorizontalAlignment="Right" Width="48" Text="4"/>
                             </Grid>
                             <CheckBox x:Name="ChkSkipNotAlive" l:Loc.Text="Salta i bersagli non confermati attivi" IsChecked="True"
                                       l:Loc.Tip="Attiva: un host senza conferma riceve «Non raggiungibile» senza tentare HTTP. Disattivata: l'alive check resta registrato ma la scansione HTTP parte comunque (utile dietro firewall che bloccano ICMP)"/>
@@ -132,6 +145,7 @@
                                               l:Loc.Tip="Una riga in più per ogni nome scoperto e ogni porta con HTTP: «nome @ IP». Raggiunge i siti veri dietro un IP condiviso"/>
                                     <TextBox x:Name="TxtMaxNames" Width="40" Margin="6,2,0,2" HorizontalAlignment="Left" l:Loc.Tip="Nomi scoperti riscansionati per ogni host (1…50)"/>
                                 </DockPanel>
+                                <CheckBox x:Name="ChkCtDns" l:Loc.Text="Nomi da Certificate Transparency solo se risolvono sull'IP in esame (verifica DNS)" IsChecked="True" l:Loc.Tip="I nomi presi da crt.sh sono tutti i nomi del dominio con un certificato, ospitati o no su questo IP. Con la verifica, un nome entra solo se risolve su questo IP; se risolve su un altro IP della lista va a quell'host; gli altri restano tracciati nella scheda. Sulla /20 di riferimento l'80% del tempo andava a nomi che non vivevano sull'IP"/>
                                 <CheckBox x:Name="ChkFoldNames" l:Loc.Text="Nomi con lo stesso contenuto del vhost predefinito: nessuna riga in più (il nome va nella colonna Nome)" IsChecked="True"
                                           l:Loc.Tip="Nella /20 di riferimento il 75% delle righe per nome era identico alla riga per IP"/>
                                 <CheckBox x:Name="ChkFoldOutcome" l:Loc.Text="Nomi con lo stesso esito (verdetto, versione, SAPI, applicazione, barriera, WAF, priorità): nessuna riga in più" IsChecked="True"
@@ -217,7 +231,7 @@
                             <TextBlock Style="{StaticResource SectionTitle}" l:Loc.Text="TEMPI E USCITA"/>
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                 <TextBlock Style="{StaticResource Lbl}" l:Loc.Text="Timeout connessione (ms)"/>
                                 <TextBox x:Name="TxtConnectTimeout" Grid.Column="1"/>
                                 <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" l:Loc.Text="Timeout lettura (ms)"/>
@@ -235,6 +249,11 @@
                                 <DockPanel Grid.Row="5" Grid.Column="1">
                                     <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseFolder_Click"/>
                                     <TextBox x:Name="TxtOutput"/>
+                                </DockPanel>
+                                <TextBlock Grid.Row="7" Style="{StaticResource Lbl}" l:Loc.Text="Host noti"/>
+                                <DockPanel Grid.Row="7" Grid.Column="1">
+                                    <Button DockPanel.Dock="Right" Content="…" Padding="7,1" Margin="4,2,0,2" Click="BtnBrowseKnownHosts_Click"/>
+                                    <TextBox x:Name="TxtKnownHosts" l:Loc.Tip="Facoltativo: file con gli host attivi in sessioni precedenti, un IP per riga (es. host_attivi_vX.Y.txt della sessione prima). Lo sweeper li riprova a ogni ciclo; chi resta muto viene segnato «Host noto» nella scheda: attivo prima, muto ora"/>
                                 </DockPanel>
                                 <TextBlock Grid.Row="6" Style="{StaticResource Lbl}" l:Loc.Text="Inventario (CSV/JSON)"/>
                                 <DockPanel Grid.Row="6" Grid.Column="1">
@@ -267,6 +286,7 @@
                     <Border Style="{StaticResource Kpi}" Tag="MitigatedAtEdge" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Mitigati al perimetro"/><TextBlock x:Name="KpiMitig" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Warn}"/><TextBlock x:Name="KpiMitigHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
                     <Border Style="{StaticResource Kpi}" Tag="FixedByVersion" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Corretti per versione"/><TextBlock x:Name="KpiFixed" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Ok}"/><TextBlock x:Name="KpiFixedHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
                     <Border Style="{StaticResource Kpi}" Tag="NoPhpDetected" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="PHP non rilevato"/><TextBlock x:Name="KpiNoPhp" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Muted}"/><TextBlock x:Name="KpiNoPhpHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
+                    <Border Style="{StaticResource Kpi}" Tag="maybe" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Servizi senza prova di PHP ma con indizi passivi pesati (intestazioni, cookie, percorsi, pannelli): verdetto «PHP non rilevato», colonna PHP = forse, riga evidenziata in lilla. Clic: aggiunge o toglie «PHP forse» nel filtro Verdetto, in OR con i verdetti scelti; «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="PHP forse"/><TextBlock x:Name="KpiMaybe" Style="{StaticResource KpiValue}" Text="0" Foreground="#7C3AED"/><TextBlock x:Name="KpiMaybeHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
                     <Border Style="{StaticResource Kpi}" Tag="NotReachable" MouseLeftButtonUp="Kpi_Click" Cursor="Hand" l:Loc.Tip="Numero grande: servizi (IP + porta + nome). Sotto: host distinti (IP). Clic: aggiunge o toglie questo verdetto nel filtro Verdetto (più riquadri = OR); «Azzera filtri» toglie tutto"><StackPanel><TextBlock Style="{StaticResource KpiLabel}" l:Loc.Text="Non raggiungibili"/><TextBlock x:Name="KpiUnreach" Style="{StaticResource KpiValue}" Text="0" Foreground="{StaticResource Muted}"/><TextBlock x:Name="KpiUnreachHosts" Style="{StaticResource KpiSub}" Text=""/></StackPanel></Border>
                 </WrapPanel>
 
@@ -341,6 +361,7 @@
                                         <DataTrigger Binding="{Binding Severity}" Value="bad"><Setter Property="Background" Value="#FEF2F2"/></DataTrigger>
                                         <DataTrigger Binding="{Binding Severity}" Value="warn"><Setter Property="Background" Value="#FFF8E6"/></DataTrigger>
                                         <DataTrigger Binding="{Binding Severity}" Value="ok"><Setter Property="Background" Value="#ECFDF3"/></DataTrigger>
+                                        <DataTrigger Binding="{Binding Severity}" Value="maybe"><Setter Property="Background" Value="#F3EEFF"/></DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </DataGrid.RowStyle>

@@ -210,7 +210,7 @@ public class EngineTests : IDisposable
         // nessun metodo attivo = nessuna conferma: il bersaglio viene saltato (la rete della sandbox non è affidabile per host muti)
         using var srv = new FakePhpServer { PoweredBy = "PHP/8.3.20" };
         var cfg = Config(srv);
-        cfg.Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 500, SkipIfNotAlive = true };
+        cfg.Alive = new AliveConfig { Enabled = true, Icmp = false, TcpPorts = [], UdpPorts = [], TimeoutMs = 500, SkipIfNotAlive = true, Retry = false };   // v1.8: senza seconda chance (che proverebbe TCP sulla porta della scansione)
         var r = await One(cfg);
         Assert.Equal(AliveState.NoResponse, r.Alive);
         Assert.Equal(Verdict.NotReachable, r.Verdict);

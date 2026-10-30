@@ -75,7 +75,7 @@ public static class SessionFiles
         "host_header", "name_rescan", "discovered_names", "php_surface", "surface_probe", "cycle", "history",
         "application_version", "technologies", "ncsc_status",
         "ip", "name", "same_content_names", "head_vs_get", "allowed_methods", "php_version_floor", "libraries", "components", "exposures", "fastcgi_exposed", "browser_ua", "app_version_check", "technology_statuses",
-        "same_outcome_names", "php_presence", "php_hints", "php_hint_score", "ini_hints", "verbosity_score", "verbosity_items",
+        "same_outcome_names", "php_presence", "php_hints", "php_hint_score", "ini_hints", "verbosity_score", "verbosity_items", "local_name",
     ];
 
     public static string ResultsToCsv(IEnumerable<ScanResult> results, CsvFormat csv)
@@ -98,7 +98,7 @@ public static class SessionFiles
                 csv.Escape(r.DisplayIp), csv.Escape(r.DisplayName), csv.Escape(string.Join(" ", r.SameContentNames)), csv.Escape(r.HeadVsGet), csv.Escape(r.AllowedMethods), csv.Escape(r.PhpVersionFloor),
                 csv.Escape(string.Join(" | ", r.Libraries)), csv.Escape(string.Join(" | ", r.Components)), csv.Escape(string.Join(" | ", r.Exposures)),
                 r.FastCgiExposed is null ? "" : r.FastCgiExposed.Value ? "1" : "0", csv.Escape(r.BrowserUaResult), csv.Escape(r.AppVersionCheck), csv.Escape(string.Join(" | ", r.TechnologyStatuses)),
-                csv.Escape(string.Join("; ", r.SameOutcomeNames)), r.PhpPresence, csv.Escape(string.Join("; ", r.PhpHints)), r.PhpHintScore.ToString(), csv.Escape(string.Join("; ", r.IniHints)), r.VerbosityScore.ToString(), csv.Escape(string.Join("; ", r.VerbosityItems)),
+                csv.Escape(string.Join("; ", r.SameOutcomeNames)), r.PhpPresence, csv.Escape(string.Join("; ", r.PhpHints)), r.PhpHintScore.ToString(), csv.Escape(string.Join("; ", r.IniHints)), r.VerbosityScore.ToString(), csv.Escape(string.Join("; ", r.VerbosityItems)), r.LocalName ? "1" : "0",
             }));
         }
         return sb.ToString();
@@ -221,7 +221,9 @@ public sealed class SessionWriter : IDisposable
         {
             try { _jsonl.WriteLine(JsonSerializer.Serialize(r, SessionFiles.JsonlOptions)); }
             catch (Exception ex) { _log.WriteLine($"{Stamp.LogNow()} results.jsonl: {ex.Message}"); }
-            if (_consolidate && _index.TryGetValue(r.Key, out int i)) _results[i] = r;
+            // v1.8: sostituzione per chiave anche senza consolidamento (seconda chance dell'alive check: la riga "non raggiungibile" viene riemessa completa);
+            // le chiavi sono uniche per ciclo, e ogni ciclo non consolidato ha il suo writer
+            if (_index.TryGetValue(r.Key, out int i)) _results[i] = r;
             else { _index[r.Key] = _results.Count; _results.Add(r); }
             _dirty = true;
             if (!_rewriteRunning && _sinceWrite.ElapsedMilliseconds >= RewriteInterval) StartRewrite();

@@ -91,6 +91,8 @@ public partial class MainWindow : Window
         TxtAliveTcp.Text = string.Join(",", c.Alive.TcpPorts);
         TxtAliveUdp.Text = string.Join(",", c.Alive.UdpPorts);
         TxtAliveTimeout.Text = c.Alive.TimeoutMs.ToString(C);
+        TxtAliveParallel.Text = c.Alive.Parallel.ToString(C);
+        ChkAliveRetry.IsChecked = c.Alive.Retry;
         ChkSkipNotAlive.IsChecked = c.Alive.SkipIfNotAlive;
         ChkInfoPages.IsChecked = c.Level1InfoPages;
         ChkEasterEgg.IsChecked = c.Level1EasterEgg;
@@ -122,8 +124,12 @@ public partial class MainWindow : Window
         ChkFoldNames.IsChecked = c.FoldSameContentNames;
         ChkFoldOutcome.IsChecked = c.FoldSameOutcomeNames;
         ChkPrecheck.IsChecked = c.PortPrecheck;
+        ChkCtDns.IsChecked = c.CtDnsCheck;
         TxtBudget.Text = (c.ServiceBudgetMs / 1000).ToString(C);
         TxtInventory.Text = c.InventoryPath;
+        TxtKnownHosts.Text = c.KnownHostsPath;
+        TxtHostsFile.Text = c.HostsFilePath;
+        TxtSweepLanes.Text = c.Alive.SweepLanes.ToString(C);
         ChkPureVersion.IsChecked = c.PureVersionIsVulnerable;
         ChkAlive_Changed(this, new RoutedEventArgs());
         ChkNames_Changed(this, new RoutedEventArgs());
@@ -183,8 +189,11 @@ public partial class MainWindow : Window
             FoldSameContentNames = ChkFoldNames.IsChecked == true,
             FoldSameOutcomeNames = ChkFoldOutcome.IsChecked == true,
             PortPrecheck = ChkPrecheck.IsChecked == true,
+            CtDnsCheck = ChkCtDns.IsChecked == true,
             ServiceBudgetMs = Math.Max(0, Int(TxtBudget, 120)) * 1000,
             InventoryPath = TxtInventory.Text.Trim(),
+            KnownHostsPath = TxtKnownHosts.Text.Trim(),
+            HostsFilePath = TxtHostsFile.Text.Trim(),
             PureVersionIsVulnerable = ChkPureVersion.IsChecked == true,
         };
         if (c.DelayMaxMs < c.DelayMinMs) _configWarnings.Add(L.F("pausa massima {0} ms inferiore alla minima {1} ms: uso la minima", c.DelayMaxMs, c.DelayMinMs));
@@ -195,6 +204,9 @@ public partial class MainWindow : Window
         c.Alive.UdpPorts = TargetParser.ParsePorts(TxtAliveUdp.Text, out var badUdp);
         if (badUdp.Count > 0) _configWarnings.Add(L.F("porte UDP dell'alive check ignorate: {0}", string.Join(", ", badUdp)));
         c.Alive.TimeoutMs = Int(TxtAliveTimeout, 1500);
+        c.Alive.Parallel = Int(TxtAliveParallel, 8);
+        c.Alive.Retry = ChkAliveRetry.IsChecked == true;
+        c.Alive.SweepLanes = Int(TxtSweepLanes, 4);
         c.Alive.SkipIfNotAlive = ChkSkipNotAlive.IsChecked == true;
         c.Clamp();
         return c;
@@ -334,7 +346,10 @@ public partial class MainWindow : Window
             foreach (var r in batch)
             {
                 var row = ToRow(r);
-                if (_consolidateRows && _rowsByKey.TryGetValue(r.Key, out var old))
+                // v1.12: la stessa chiave nello stesso ciclo (anteprima della riga per IP, riemissione dello sweeper o degli host noti) sostituisce la riga:
+                // nella v1.8-v1.11 a ciclo singolo veniva aggiunta e le tessere contavano i doppioni (il report, da session.Results, era giusto).
+                // Con i cicli consolidati sostituisce sempre; con sessioni distinte un ciclo nuovo aggiunge la sua riga.
+                if (_rowsByKey.TryGetValue(r.Key, out var old) && (_consolidateRows || old.Result.Cycle == r.Cycle))
                 {
                     int i = _rows.IndexOf(old);
                     if (i >= 0) _rows[i] = row; else _rows.Add(row);
@@ -463,9 +478,12 @@ public partial class MainWindow : Window
         r.WafSummary.Length > 0 ? r.WafSummary : "–",
         Labels.Verdict(r.Verdict), Labels.Priority(r.Priority), r.DurationMs.ToString("F0", C),
         r.History.Count > 1 ? (ResultMerger.VerdictChanged(r) ? "Δ " : "") + r.Cycle.ToString(C) + "/" + r.History.Count.ToString(C) : r.Cycle.ToString(C),
-        r.VerdictReason, Labels.VerdictClass(r.Verdict), r);
+        r.VerdictReason, r.PhpPresence == "maybe" && !r.PhpDetected && r.HttpReachable ? "maybe" : Labels.VerdictClass(r.Verdict), r);   // v1.7: riga "forse" in lilla
 
     /// <summary>Riga "attiva": host confermato dall'alive check o, con alive check spento, con una risposta.</summary>
+    /// <summary>Riga "PHP forse" (v1.7): HTTP risponde, nessuna prova di PHP, indizi passivi sopra soglia (stessa regola del report compatto).</summary>
+    private static bool IsMaybeRow(ScanResult r) => CompactReportGenerator.IsPhpSuspect(r);
+
     private static bool IsAliveRow(ScanResult r) => r.Alive == AliveState.Alive || (r.Alive == AliveState.NotTested && (r.HttpReachable || r.Tls is { Handshake: true }));
 
     private void UpdateKpis()
@@ -477,9 +495,10 @@ public partial class MainWindow : Window
         var http = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int maybe = 0;
+        var maybeHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var x in _rows)
         {
-            if (x.Result.PhpPresence == "maybe") maybe++;
+            if (IsMaybeRow(x.Result)) { maybe++; maybeHosts.Add(x.Result.DisplayIp); }
             counts[(int)x.Result.Verdict]++;
             hostsBy[(int)x.Result.Verdict].Add(x.Result.DisplayIp);
             hosts.Add(x.Result.DisplayIp);
@@ -488,7 +507,8 @@ public partial class MainWindow : Window
         }
         string Hosts(Verdict v) => counts[(int)v] > 0 ? L.F("su {0} host", hostsBy[(int)v].Count) : "";
         KpiVulnHosts.Text = Hosts(Verdict.VulnerableByVersion); KpiLikelyHosts.Text = Hosts(Verdict.LikelyVulnerable); KpiUndetHosts.Text = Hosts(Verdict.Undetermined);
-        KpiMitigHosts.Text = Hosts(Verdict.MitigatedAtEdge); KpiFixedHosts.Text = Hosts(Verdict.FixedByVersion); KpiNoPhpHosts.Text = Hosts(Verdict.NoPhpDetected) + (maybe > 0 ? " " + L.F("(di cui {0} con indizi)", maybe) : ""); KpiUnreachHosts.Text = Hosts(Verdict.NotReachable);
+        KpiMitigHosts.Text = Hosts(Verdict.MitigatedAtEdge); KpiFixedHosts.Text = Hosts(Verdict.FixedByVersion); KpiNoPhpHosts.Text = Hosts(Verdict.NoPhpDetected);
+        KpiMaybe.Text = maybe.ToString(C); KpiMaybeHosts.Text = maybe > 0 ? L.F("su {0} host", maybeHosts.Count) : ""; KpiUnreachHosts.Text = Hosts(Verdict.NotReachable);
         KpiAliveSub.Text = alive.Count > 0 ? L.F("{0} con HTTP", http.Count) : "";
         KpiVuln.Text = counts[(int)Verdict.VulnerableByVersion].ToString(C);
         KpiLikely.Text = counts[(int)Verdict.LikelyVulnerable].ToString(C);
@@ -520,7 +540,7 @@ public partial class MainWindow : Window
         _fillingFilters = true;
         try
         {
-            Fill(CmbFilterVerdict, _verdictItems, Enum.GetValues<Verdict>().Select(v => new MultiSelectItem(v.ToString(), Labels.Verdict(v))));
+            Fill(CmbFilterVerdict, _verdictItems, Enum.GetValues<Verdict>().Select(v => new MultiSelectItem(v.ToString(), Labels.Verdict(v))).Append(new MultiSelectItem("maybe", L.T("PHP forse"))));   // v1.8: "forse" in OR con i verdetti
             Fill(CmbFilterPriority, _priorityItems, Enum.GetValues<Priority>().Reverse().Select(p => new MultiSelectItem(p.ToString(), Labels.Priority(p))));
             Fill(CmbFilterAlive, _aliveItems, Enum.GetValues<AliveState>().Select(a => new MultiSelectItem(a.ToString(), Labels.Alive(a))));
             Fill(CmbFilterBarrier, _barrierItems, Enum.GetValues<MultipartBarrier>().Select(m => new MultiSelectItem(m.ToString(), Labels.Multipart(m))));
@@ -576,6 +596,19 @@ public partial class MainWindow : Window
         if (sender is ComboBox cmb && cmb.SelectedIndex != -1) cmb.SelectedIndex = -1;
     }
 
+    /// <summary>Gruppo Verdetto (v1.8): i verdetti selezionati in OR tra loro e con «PHP forse» (riga con indizi, verdetto "PHP non rilevato").</summary>
+    private bool PassesVerdict(ScanResult r)
+    {
+        bool any = false;
+        foreach (var i in _verdictItems)
+        {
+            if (!i.IsChecked) continue;
+            any = true;
+            if (i.Key == "maybe" ? IsMaybeRow(r) : i.Key == r.Verdict.ToString()) return true;
+        }
+        return !any;
+    }
+
     private static bool Passes(ObservableCollection<MultiSelectItem> items, string key)
     {
         bool any = false;
@@ -601,7 +634,7 @@ public partial class MainWindow : Window
         if (o is not ResultRow row) return false;
         var r = row.Result;
         if (_kpiFilter == "alive" && !IsAliveRow(r)) return false;
-        if (!Passes(_verdictItems, r.Verdict.ToString())) return false;
+        if (!PassesVerdict(r)) return false;
         if (!Passes(_priorityItems, r.Priority.ToString())) return false;
         if (!Passes(_aliveItems, r.Alive.ToString())) return false;
         if (!Passes(_barrierItems, r.Multipart.ToString())) return false;
@@ -760,7 +793,7 @@ public partial class MainWindow : Window
     {
         var dlg = new SaveFileDialog
         {
-            Filter = L.T("Log esteso (*.txt)|*.txt|Risultati CSV (*.csv)|*.csv|Risultati JSON (*.json)|*.json|Test eseguiti CSV (*.csv)|*.csv|Host attivi, un IP per riga (*.txt)|*.txt|Host con HTTP, un IP per riga (*.txt)|*.txt|Nomi scoperti (*.txt)|*.txt"),
+            Filter = L.T("Log esteso (*.txt)|*.txt|Risultati CSV (*.csv)|*.csv|Risultati JSON (*.json)|*.json|Test eseguiti CSV (*.csv)|*.csv|Host attivi, un IP per riga (*.txt)|*.txt|Host con HTTP, un IP per riga (*.txt)|*.txt|Nomi scoperti (*.txt)|*.txt|Pacchetto per analisi senza corpi (*.zip)|*.zip"),
             FileName = $"phpscan_{DateTime.Now:yyyyMMdd_HHmm}_v{AppPaths.Version}",
             InitialDirectory = _session?.Folder is { Length: > 0 } f && Directory.Exists(f) ? f : TxtOutput.Text,
         };
@@ -796,6 +829,11 @@ public partial class MainWindow : Window
                     if (_session == null) throw new InvalidOperationException(L.T("Nessuna sessione da esportare."));
                     File.WriteAllText(dlg.FileName, HostLists.DiscoveredNamesText(_session.Results), new UTF8Encoding(false));
                     break;
+                case 8:
+                    // v1.10: zip della cartella di sessione senza i corpi delle risposte (sotto i limiti di upload)
+                    if (_session == null || !Directory.Exists(_session.Folder)) throw new InvalidOperationException(L.T("Nessuna sessione da esportare."));
+                    AnalysisBundle.Build(_session.Folder, dlg.FileName);
+                    break;
             }
             AppendLog(L.F("Esportato: {0}", dlg.FileName));
         }
@@ -810,10 +848,39 @@ public partial class MainWindow : Window
             string folder = Directory.Exists(_session.Folder) ? _session.Folder : TxtOutput.Text;
             Directory.CreateDirectory(folder);
             var path = ReportGenerator.Generate(_session, folder);
-            AppendLog(L.F("Report HTML: {0}", path));
+            string suffix = ReportGenerator.Suffix(path);
+            AppendLog(suffix.Length > 0 ? L.F("Report HTML: {0} (nuova copia {1}: i report e i CSV precedenti restano)", path, suffix.TrimStart('_')) : L.F("Report HTML: {0}", path));
             OpenPath(path);
         }
         catch (Exception ex) { Error(L.F("Report non generato: {0}", ex.Message)); }
+    }
+
+    // v1.10: configurazione su file (stesso JSON di session.json → Config), riusabile da --config
+    private void BtnSaveConfig_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SaveFileDialog { Filter = L.T("Configurazione (*.json)|*.json"), FileName = $"phpscan_config_v{AppPaths.Version}.json", InitialDirectory = TxtOutput.Text };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            File.WriteAllText(dlg.FileName, System.Text.Json.JsonSerializer.Serialize(ReadConfig(), ScanConfig.JsonOptions), new UTF8Encoding(false));
+            AppendLog(L.F("Configurazione salvata: {0}", dlg.FileName));
+        }
+        catch (Exception ex) { Error(L.F("Configurazione non salvata: {0}", ex.Message)); }
+    }
+
+    private void BtnLoadConfig_Click(object sender, RoutedEventArgs e)
+    {
+        if (_running) return;
+        var dlg = new OpenFileDialog { Filter = L.T("Configurazione o session.json (*.json)|*.json"), InitialDirectory = TxtOutput.Text };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            var c = PhpVulnScanner.Core.Cli.CliRunner.LoadConfigFile(dlg.FileName);
+            if (string.IsNullOrWhiteSpace(c.OutputFolder)) c.OutputFolder = TxtOutput.Text;
+            LoadConfig(c);
+            AppendLog(L.F("Configurazione caricata: {0}", dlg.FileName));
+        }
+        catch (Exception ex) { Error(L.F("Configurazione non caricata: {0}", ex.Message)); }
     }
 
     private void BtnOpenSession_Click(object sender, RoutedEventArgs e)
@@ -897,6 +964,18 @@ public partial class MainWindow : Window
     {
         var dlg = new OpenFileDialog { Filter = "CSV, JSON (*.csv;*.json;*.txt)|*.csv;*.json;*.txt|" + L.T("Tutti i file") + "|*.*", Title = L.T("Scegli il file di inventario (CSV o JSON)") };
         if (dlg.ShowDialog(this) == true) TxtInventory.Text = dlg.FileName;
+    }
+
+    private void BtnBrowseHostsFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Filter = L.T("Tutti i file") + "|*.*|TXT (*.txt)|*.txt", Title = L.T("Scegli il file hosts (IP nome nome…)") };
+        if (dlg.ShowDialog(this) == true) TxtHostsFile.Text = dlg.FileName;
+    }
+
+    private void BtnBrowseKnownHosts_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Filter = "TXT (*.txt)|*.txt|" + L.T("Tutti i file") + "|*.*", Title = L.T("Scegli il file degli host noti (un IP per riga)") };
+        if (dlg.ShowDialog(this) == true) TxtKnownHosts.Text = dlg.FileName;
     }
 
     private void BtnBrowseFolder_Click(object sender, RoutedEventArgs e)

@@ -49,6 +49,25 @@ public static class CertificateTransparency
         return labels[^2] + "." + labels[^1];
     }
 
+    /// <summary>v1.8: tra i nomi sotto <paramref name="registrable"/>, il sottodominio a una etichetta in più (es. ente.example.it) più frequente; null se nessun nome ha più di due etichette oltre il dominio.</summary>
+    public static string? MostCommonSubdomain(IEnumerable<string> names, string registrable)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int regLabels = registrable.Split('.').Length;
+        foreach (var raw in names)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            string n = raw.Trim().TrimEnd('.').ToLowerInvariant();
+            if (n.StartsWith("*.", StringComparison.Ordinal)) n = n[2..];
+            if (!n.EndsWith("." + registrable, StringComparison.OrdinalIgnoreCase)) continue;
+            var labels = n.Split('.');
+            if (labels.Length < regLabels + 1) continue;
+            string sub = string.Join('.', labels[^(regLabels + 1)..]);
+            counts[sub] = counts.GetValueOrDefault(sub) + 1;
+        }
+        return counts.Count == 0 ? null : counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).First().Key;
+    }
+
     /// <summary>Nomi distinti e validi dall'output JSON di crt.sh (campi name_value, una riga per nome, e common_name); i wildcard sono scartati.</summary>
     public static List<string> ParseCrtSh(string json)
     {

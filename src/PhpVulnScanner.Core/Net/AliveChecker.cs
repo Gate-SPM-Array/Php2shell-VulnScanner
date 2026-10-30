@@ -21,6 +21,16 @@ public sealed class AliveConfig
     public int TimeoutMs { get; set; } = 1500;
     /// <summary>Se vero, i bersagli non confermati attivi non vengono scansionati.</summary>
     public bool SkipIfNotAlive { get; set; } = true;
+    /// <summary>v1.8: host in alive check contemporaneamente (0 = quanti i thread). Indipendente dai thread HTTP: ogni host apre ICMP + TCP + UDP insieme.</summary>
+    public int Parallel { get; set; } = 8;
+    /// <summary>v1.8: a fine ciclo gli host non confermati vengono riprovati (v1.11: sweeper continuo per tutto il ciclo, ICMP + TCP sulle porte della scansione, timeout 1,5×).</summary>
+    public bool Retry { get; set; } = true;
+    /// <summary>v1.11: corsie dello sweeper (host non confermati riprovati insieme), indipendenti dai thread HTTP.</summary>
+    public int SweepLanes { get; set; } = 4;
+    /// <summary>v1.11.1: porte TCP dello sweeper (vuoto = le stesse dell'alive check). Mai le porte della scansione: un perimetro che accetta la connessione su una porta per qualunque IP (sulla /20: TCP/1720) rendeva "attivi" 3556 host su 4094.</summary>
+    public List<int> SweepTcpPorts { get; set; } = [];
+    /// <summary>Porte TCP usate dallo sweeper.</summary>
+    public List<int> EffectiveSweepTcpPorts => SweepTcpPorts.Count > 0 ? SweepTcpPorts : TcpPorts;
 }
 
 /// <summary>Esito del controllo: Attivo (almeno un metodo ha ricevuto una risposta), Nessuna risposta, Non eseguito.</summary>
@@ -70,13 +80,19 @@ public static class AliveChecker
             try { (ok, detail) = await done.ConfigureAwait(false); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex) { detail = ex.GetBaseException().Message; }
-            // un metodo che finisce dopo la conferma di un altro è stato annullato: lo si dice, invece di riportare il messaggio di sistema
-            if (!ok && confirmed != null) detail = L.T("annullato (host già confermato)");
             outcomes[entry.Method] = new AliveMethodResult(entry.Method, ok, detail, entry.Sw.Elapsed.TotalMilliseconds);
-            if (ok && confirmed == null)
+            if (ok)
             {
                 confirmed = new AliveResult(AliveState.Alive, entry.Method, detail, sw.Elapsed.TotalMilliseconds, []);
-                cts.Cancel();   // gli altri metodi non servono più: vengono annullati e registrati come tali
+                cts.Cancel();   // gli altri metodi non servono più
+                // v1.8: non si aspetta la fine delle sonde annullate (sulla /20 costava 1,2 s per host attivo: un ping annullato non torna subito);
+                // vengono registrate come annullate con il tempo trascorso finora e lasciate morire in sfondo
+                foreach (var p in pending)
+                {
+                    outcomes[p.Method] = new AliveMethodResult(p.Method, false, L.T("annullato (host già confermato)"), p.Sw.Elapsed.TotalMilliseconds);
+                    _ = p.Task.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                }
+                break;
             }
         }
         var ordered = tasks.Select(t => outcomes[t.Method]).ToList();

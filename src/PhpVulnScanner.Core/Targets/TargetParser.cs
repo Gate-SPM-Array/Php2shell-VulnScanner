@@ -22,14 +22,18 @@ public static class TargetParser
 
     private static readonly Regex HostName = new(@"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$", RegexOptions.CultureInvariant);
 
-    public sealed record ParseResult(List<ScanTarget> Targets, List<string> Errors);
+    /// <summary>Bersagli espansi, errori e (v1.12) assegnazioni locali <c>nome@IP</c>: nome da scansionare su quell'IP senza query DNS.</summary>
+    public sealed record ParseResult(List<ScanTarget> Targets, List<string> Errors, List<HostsFile.Entry> LocalNames);
+
+    public static bool IsHostName(string s) => HostName.IsMatch(s);
 
     public static ParseResult Parse(string? text)
     {
         var targets = new List<ScanTarget>();
         var errors = new List<string>();
+        var local = new List<HostsFile.Entry>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(text)) return new ParseResult(targets, errors);
+        if (string.IsNullOrWhiteSpace(text)) return new ParseResult(targets, errors, local);
 
         foreach (var rawLine in text.Split('\n'))
         {
@@ -43,13 +47,25 @@ public static class TargetParser
                 if (token.Length == 0) continue;
                 try
                 {
+                    int at = token.IndexOf('@');
+                    if (at >= 0)
+                    {
+                        // v1.12: nome@IP, come una voce del file hosts: il nome va scansionato su quell'IP, senza DNS
+                        string name = token[..at].TrimEnd('.').ToLowerInvariant();
+                        string ipText = token[(at + 1)..].Trim('[', ']');
+                        if (name.Length == 0 || !HostsFile.IsName(name)) throw new FormatException(L.T("nome@IP: il nome non è valido"));
+                        if (!IPAddress.TryParse(ipText, out var ip)) throw new FormatException(L.T("nome@IP: dopo @ serve un indirizzo IP"));
+                        HostsFile.Add(local, name, ip.ToString());
+                        if (seen.Add(ip.ToString())) targets.Add(new ScanTarget(tok, ip.ToString(), true));
+                        continue;
+                    }
                     foreach (var t in Expand(token))
                         if (seen.Add(t.Host)) targets.Add(t);
                 }
                 catch (FormatException ex) { errors.Add($"{tok}: {ex.Message}"); }
             }
         }
-        return new ParseResult(targets, errors);
+        return new ParseResult(targets, errors, local);
     }
 
     /// <summary>Toglie <c>http://</c>, <c>https://</c>, percorso e porta scritti per sbaglio nell'elenco (la porta si imposta a parte).</summary>

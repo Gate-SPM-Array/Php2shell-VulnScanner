@@ -53,6 +53,12 @@ public sealed class FakePhpServer : IDisposable
     public string? LastUserAgent;
     /// <summary>v1.6: se &gt; 0, ogni richiesta (qualunque metodo e percorso) riceve questo stato con il corpo AllStatusBody: simula un gateway con il backend morto (502/503/504).</summary>
     public int AllStatus { get; set; }
+    /// <summary>v1.7: con AllStatus, "/" risponde invece 302 verso questo URL (gateway vivo che redirige la radice, backend morto su tutto il resto).</summary>
+    public string? AllStatusRootRedirect { get; set; }
+    /// <summary>v1.7: ritardo in millisecondi prima di ogni risposta (misura del parallelismo).</summary>
+    public int DelayMs { get; set; }
+    /// <summary>v1.7: percorsi che rispondono 302 verso l'URL indicato (fonte di nomi scoperti).</summary>
+    public Dictionary<string, string> Redirects { get; } = new(StringComparer.OrdinalIgnoreCase);
     public string AllStatusBody { get; set; } = "<html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx</center></body></html>";
 
     public int Port { get; }
@@ -108,6 +114,8 @@ public sealed class FakePhpServer : IDisposable
             lock (Requests) Requests.Add($"{req.HttpMethod} {req.RawUrl} [{ct}] {body.Length}");
 
             resp.Headers["Server"] = Server;
+            if (DelayMs > 0) Thread.Sleep(DelayMs);
+            if (AllStatus > 0 && AllStatusRootRedirect != null && req.Url!.AbsolutePath == "/") { resp.Headers["Location"] = AllStatusRootRedirect; Write(resp, 302, "Moved", head: req.HttpMethod == "HEAD"); return; }
             if (AllStatus > 0) { Write(resp, AllStatus, AllStatusBody, head: req.HttpMethod == "HEAD"); return; }
             if (PoweredBy != null) resp.Headers["X-Powered-By"] = PoweredBy;
             if (Waf) resp.Headers["cf-ray"] = "8a1b2c3d4e5f-FCO";
@@ -121,10 +129,11 @@ public sealed class FakePhpServer : IDisposable
                 Write(resp, AllowHeader != null ? 204 : 200, "", head: true);
                 return;
             }
+            if (Redirects.TryGetValue(path, out var to)) { resp.Headers["Location"] = to; Write(resp, 302, "Moved", head: req.HttpMethod == "HEAD"); return; }
             if (PathBodies.TryGetValue(path, out var pb)) { Write(resp, pb.Status, pb.Body, head: req.HttpMethod == "HEAD", contentType: pb.ContentType); return; }
             if (PathInfo && path.StartsWith("/index.php/", StringComparison.Ordinal)) path = "/index.php";
             string hostHeader = req.Headers["Host"] ?? "";
-            bool vhost = VhostName != null && hostHeader.StartsWith(VhostName, StringComparison.OrdinalIgnoreCase);
+            bool vhost = VhostName != null && (VhostName == "*" ? hostHeader.Length > 0 && !hostHeader.StartsWith("127.0.0.1", StringComparison.Ordinal) : hostHeader.StartsWith(VhostName, StringComparison.OrdinalIgnoreCase));
             if (!hostHeader.StartsWith("127.0.0.1", StringComparison.Ordinal) && hostHeader.Length > 0) Interlocked.Increment(ref VhostRequests);
             if (vhost && VhostPoweredBy != null) resp.Headers["X-Powered-By"] = VhostPoweredBy;
 

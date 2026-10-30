@@ -23,10 +23,14 @@ public static class ReportGenerator
     public static string Generate(ScanSession session, string? folder = null)
     {
         folder ??= session.Folder;
-        var full = SessionFiles.NextReportPath(folder, SessionFiles.FullReportPrefix, session.AppVersion);
-        File.WriteAllText(full, Build(session, PerCycleSection(session, folder)), new UTF8Encoding(false));
         var compact = SessionFiles.NextReportPath(folder, SessionFiles.CompactReportPrefix, session.AppVersion);
+        // v1.10: i CSV rigenerati (elenco per Excel, results_cN) prendono lo stesso suffisso _2, _3 del report, invece di sovrascrivere i precedenti
+        string suffix = Suffix(compact);
+        var full = SessionFiles.NextReportPath(folder, SessionFiles.FullReportPrefix, session.AppVersion);
+        File.WriteAllText(full, Build(session, PerCycleSection(session, folder, suffix)), new UTF8Encoding(false));
         File.WriteAllText(compact, BuildCompact(session, Path.GetFileName(full)), new UTF8Encoding(false));
+        // v1.8: elenco per Excel anche come CSV accanto al report
+        try { File.WriteAllText(Path.Combine(folder, CompactReportGenerator.ExcelCsvName(session.AppVersion, suffix)), CompactReportGenerator.ExcelCsv(session, new CsvFormat(session.Config.CsvDialect)), SessionFiles.Utf8Bom); } catch { }
         return compact;
     }
 
@@ -34,7 +38,15 @@ public static class ReportGenerator
     public static string BuildCompact(ScanSession s, string fullReportFileName) => CompactReportGenerator.Build(s, fullReportFileName);
 
     /// <summary>Sezione "Per ciclo" dei loop consolidati, dalle osservazioni di results.jsonl nella cartella; null quando non c'è nulla da aggiungere.</summary>
-    public static string? PerCycleSection(ScanSession s, string folder)
+    /// <summary>Suffisso di rigenerazione del nome di un report ("" per il primo, "_2", "_3"…).</summary>
+    public static string Suffix(string reportPath)
+    {
+        string stem = Path.GetFileNameWithoutExtension(reportPath);
+        int i = stem.LastIndexOf('_');
+        return i > 0 && int.TryParse(stem[(i + 1)..], out _) ? stem[i..] : "";
+    }
+
+    public static string? PerCycleSection(ScanSession s, string folder, string suffix = "")
     {
         try
         {
@@ -49,7 +61,7 @@ public static class ReportGenerator
             var csv = new CsvFormat(s.Config.CsvDialect);
             foreach (var (cycle, session) in cycles)
             {
-                try { File.WriteAllText(Path.Combine(folder, $"results_c{cycle}.csv"), SessionFiles.ResultsToCsv(session.Results, csv), SessionFiles.Utf8Bom); } catch { }
+                try { File.WriteAllText(Path.Combine(folder, $"results_c{cycle}{suffix}.csv"), SessionFiles.ResultsToCsv(session.Results, csv), SessionFiles.Utf8Bom); } catch { }
             }
             return CycleReports.BuildPerCycleSection(s, cycles);
         }
@@ -137,7 +149,7 @@ public static class ReportGenerator
         {
             i++;
             bool hasCard = r.HttpReachable || s.Config.ReportUnreachableDetails;
-            sb.Append("<tr class=\"row\" data-verdict=\"").Append(r.Verdict).Append("\" data-alive=\"").Append(r.Alive == AliveState.Alive || (!s.Config.Alive.Enabled && r.HttpReachable) ? "1" : "0").Append("\"><td class=\"mono\">").Append(E(Stamp.Local(r.StartedLocal))).Append("</td><td>")
+            sb.Append("<tr class=\"row").Append(CompactReportGenerator.IsPhpSuspect(r) ? " maybe" : "").Append("\" data-verdict=\"").Append(r.Verdict).Append("\" data-alive=\"").Append(r.Alive == AliveState.Alive || (!s.Config.Alive.Enabled && r.HttpReachable) ? "1" : "0").Append("\"><td class=\"mono\">").Append(E(Stamp.Local(r.StartedLocal))).Append("</td><td>")
               .Append(hasCard ? "<a href=\"#r" + i + "\">" + E(r.DisplayIp) + "</a>" : E(r.DisplayIp)).Append(ResultMerger.VerdictChanged(r) ? " <span class=\"badge warn\" title=\"" + E(string.Join(" | ", r.History)) + "\">Δ</span>" : "").Append("</td><td class=\"mono\">")
               .Append(E(NameColumn(r))).Append("</td><td>")
               .Append(r.Port).Append(r.Scheme.Length > 0 ? " " + r.Scheme : "").Append("</td><td>").Append(E(Labels.Alive(r.Alive))).Append(r.AliveMethod.Length > 0 ? " (" + E(r.AliveMethod) + ")" : "").Append("</td><td>")
@@ -161,7 +173,7 @@ public static class ReportGenerator
               .Append(E(Labels.Verdict(r.Verdict))).Append("</span> <b>").Append(E(r.Display)).Append(":").Append(r.Port).Append("</b> <span class=\"muted\">").Append(E(r.VerdictReason)).Append("</span></summary>");
             sb.Append("<table class=\"kv\">");
             Kv(sb, L.T("Indirizzi"), string.Join(", ", r.ResolvedIps));
-            Kv(sb, L.T("Host header"), r.HostHeader);
+            Kv(sb, L.T("Host header"), r.HostHeader + (r.LocalName ? " " + L.T("(nome assegnato localmente: file hosts o nome@IP, nessuna query DNS)") : ""));
             Kv(sb, L.T("Avvio"), Stamp.Local(r.StartedLocal));
             Kv(sb, L.T("Priorità"), Labels.Priority(r.Priority));
             if (r.Alive != AliveState.NotTested) Kv(sb, L.T("Alive check"), Labels.Alive(r.Alive) + (r.AliveMethod.Length > 0 ? $" ({r.AliveMethod})" : "") + (r.AliveMethods.Length > 0 ? ": " + r.AliveMethods : ""));
@@ -312,7 +324,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px
 table.kv{width:auto;margin:6px 0 10px}table.kv th{width:180px;white-space:nowrap}
 .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px}.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 14px;background:var(--bg);color:var(--fg);cursor:pointer;min-width:120px;text-align:left;font:inherit}
 .kpi .n{display:block;font-size:22px;font-weight:600}.kpi .l{display:block;font-size:12px;color:var(--muted)}.kpi.active{outline:2px solid var(--accent)}
-.kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}
+.kpi.bad .n{color:var(--bad)}.kpi.warn .n{color:var(--warn)}.kpi.ok .n{color:var(--ok)}tr.row.maybe td{background:#f3eeff}
 .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}.badge.bad{background:var(--bad-soft);color:var(--bad)}.badge.warn{background:var(--warn-soft);color:var(--warn)}.badge.ok{background:var(--ok-soft);color:var(--ok)}.badge.muted{background:var(--soft);color:var(--muted)}
 #q{width:100%;padding:7px 10px;margin:8px 0;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
 details.card{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0;background:var(--bg)}details.card>summary{cursor:pointer;font-size:14px}details.card[open]>summary{margin-bottom:8px}
